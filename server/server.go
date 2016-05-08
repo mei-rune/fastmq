@@ -1,0 +1,198 @@
+package server
+
+import (
+	"bytes"
+	"container/list"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"runtime"
+	"strings"
+	"sync"
+	"sync/atomic"
+)
+
+var ErrAlreadyClosed = errors.New("server is already closed.")
+
+type Server struct {
+	options      Options
+	is_stopped   int32
+	waitGroup    sync.WaitGroup
+	listener     net.Listener
+	clients_lock sync.Mutex
+	clients      *list.List
+	queues_lock  sync.RWMutex
+	queues       map[string]*Queue
+
+	topics_lock sync.RWMutex
+	topics      map[string]*Topic
+}
+
+func (self *Server) Close() error {
+	if !atomic.CompareAndSwapInt32(&self.is_stopped, 0, 1) {
+		return ErrAlreadyClosed
+	}
+	err := self.listener.Close()
+	func() {
+		self.clients_lock.Lock()
+		defer self.clients_lock.Unlock()
+		for el := self.clients.Front(); el != nil; el = el.Next() {
+			if conn, ok := el.Value.(io.Closer); ok {
+				conn.Close()
+			}
+		}
+	}()
+
+	self.waitGroup.Wait()
+	return err
+}
+
+func (self *Server) log(args ...interface{}) {
+	self.options.Logger.Println(args...)
+}
+
+func (self *Server) logf(format string, args ...interface{}) {
+	self.options.Logger.Printf(format, args...)
+}
+
+func (self *Server) catchThrow(ctx string) {
+	if e := recover(); nil != e {
+		var buffer bytes.Buffer
+		buffer.WriteString(fmt.Sprintf("[panic] %s %v", ctx, e))
+		for i := 1; ; i += 1 {
+			pc, file, line, ok := runtime.Caller(i)
+			if !ok {
+				break
+			}
+			funcinfo := runtime.FuncForPC(pc)
+			if nil != funcinfo {
+				buffer.WriteString(fmt.Sprintf("    %s:%d %s\r\n", file, line, funcinfo.Name()))
+			} else {
+				buffer.WriteString(fmt.Sprintf("    %s:%d\r\n", file, line))
+			}
+		}
+		self.logf(buffer.String())
+	}
+}
+
+func (self *Server) runLoop(listener net.Listener) {
+	self.logf("TCP: listening on %s", listener.Addr())
+
+	for 0 == atomic.LoadInt32(&self.is_stopped) {
+		clientConn, err := listener.Accept()
+		if err != nil {
+			if nerr, ok := err.(net.Error); ok && nerr.Temporary() {
+				self.logf("NOTICE: temporary Accept() failure - %s", err)
+				runtime.Gosched()
+				continue
+			}
+
+			// theres no direct way to detect this error because it is not exposed
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				self.logf("ERROR: listener.Accept() - %s", err)
+			}
+			break
+		}
+
+		remoteAddr := clientConn.RemoteAddr().String()
+
+		WaitGroupWrap(&self.waitGroup, func() {
+			client := &Client{
+				srv:        self,
+				remoteAddr: remoteAddr,
+				conn:       clientConn,
+			}
+
+			defer self.catchThrow("[" + remoteAddr + "]")
+
+			self.clients_lock.Lock()
+			el := self.clients.PushBack(client)
+			self.clients_lock.Unlock()
+
+			defer func() {
+				self.clients_lock.Lock()
+				self.clients.Remove(el)
+				self.clients_lock.Unlock()
+
+				client.Close()
+			}()
+
+			client.runLoop()
+		})
+
+	}
+
+	self.logf("TCP: closing %s", listener.Addr())
+}
+
+func (self *Server) createQueueIfNotExists(name string) *Queue {
+	self.queues_lock.RLock()
+	queue, ok := self.queues[name]
+	self.queues_lock.RUnlock()
+
+	if ok {
+		return queue
+	}
+
+	self.queues_lock.Lock()
+	queue, ok = self.queues[name]
+	if ok {
+		self.queues_lock.Unlock()
+		return queue
+	}
+	queue = createQueue(srv, name)
+	self.queues[name] = queue
+	self.queues_lock.Unlock()
+	return queue
+}
+
+func (self *Server) createTopicIfNotExists(name string) *Queue {
+	self.topics_lock.RLock()
+	topic, ok := self.topics[name]
+	self.topics_lock.RUnlock()
+
+	if ok {
+		return topic
+	}
+
+	self.topics_lock.Lock()
+	topic, ok = self.topics[name]
+	if ok {
+		self.topics_lock.Unlock()
+		return topic
+	}
+	topic = createQueue(srv, name)
+	self.topics[name] = topic
+	self.topics_lock.Unlock()
+	return topic
+}
+
+func NewServer(opts *Options) (*Server, error) {
+	listener, err := net.Listen("tcp", opts.TCPAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	srv := &Server{
+		options:  *opts,
+		listener: listener,
+		clients:  list.New(),
+		queues:   map[string]*Queue{},
+		topics:   map[string]*Topic{},
+	}
+
+	WaitGroupWrap(&srv.waitGroup, func() {
+		srv.runLoop(listener)
+	})
+
+	return srv, nil
+}
+
+func WaitGroupWrap(w *sync.WaitGroup, cb func()) {
+	w.Add(1)
+	go func() {
+		cb()
+		w.Done()
+	}()
+}
