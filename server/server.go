@@ -118,7 +118,15 @@ func (self *Server) runLoop(listener net.Listener) {
 				client.Close()
 			}()
 
-			client.runLoop()
+			ch := make(chan interface{}, 10)
+			WaitGroupWrap(&self.waitGroup, func() {
+				client.runWrite(ch)
+
+				client.Close()
+			})
+
+			client.runRead(ch)
+			close(ch)
 		})
 
 	}
@@ -141,13 +149,13 @@ func (self *Server) createQueueIfNotExists(name string) *Queue {
 		self.queues_lock.Unlock()
 		return queue
 	}
-	queue = createQueue(srv, name)
+	queue = creatQueue(self, name, self.options.MsgQueueCapacity)
 	self.queues[name] = queue
 	self.queues_lock.Unlock()
 	return queue
 }
 
-func (self *Server) createTopicIfNotExists(name string) *Queue {
+func (self *Server) createTopicIfNotExists(name string) *Topic {
 	self.topics_lock.RLock()
 	topic, ok := self.topics[name]
 	self.topics_lock.RUnlock()
@@ -162,7 +170,7 @@ func (self *Server) createTopicIfNotExists(name string) *Queue {
 		self.topics_lock.Unlock()
 		return topic
 	}
-	topic = createQueue(srv, name)
+	topic = creatTopic(self, name, self.options.MsgQueueCapacity)
 	self.topics[name] = topic
 	self.topics_lock.Unlock()
 	return topic

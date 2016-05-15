@@ -227,12 +227,14 @@ func (self *MeesageBuilder) Build() []byte {
 }
 
 func NewMessageWriter(cmd byte, capacity int) *MeesageBuilder {
-	return
+	builder := &MeesageBuilder{}
+	builder.Init(cmd, capacity)
+	return builder
 }
 
 func BuildErrorMessage(msg string) Message {
 	var builder MeesageBuilder
 	builder.Init(MSG_ERROR, len(msg))
-	buffer.WriteString(msg)
+	builder.WriteString(msg)
 	return builder.Build()
 }

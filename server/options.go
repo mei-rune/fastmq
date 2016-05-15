@@ -16,8 +16,9 @@ type Options struct {
 	TCPAddress string `flag:"tcp-address"`
 
 	// msg and command options
-	MsgBufferSize int
-	MsgTimeout    time.Duration `flag:"msg-timeout" arg:"1ms"`
+	MsgBufferSize    int
+	MsgTimeout       time.Duration `flag:"msg-timeout" arg:"1ms"`
+	MsgQueueCapacity int
 
 	Logger *log.Logger
 }
