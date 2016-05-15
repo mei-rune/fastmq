@@ -109,6 +109,7 @@ func (self *Client) runRead(c chan interface{}) {
 	}
 
 	var ctx execCtx
+	defer ctx.Reset()
 
 	reader := NewMessageReader(conn, self.srv.options.MsgBufferSize)
 	for 0 == atomic.LoadInt32(&self.closed) &&
