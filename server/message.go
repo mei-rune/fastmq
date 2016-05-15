@@ -20,6 +20,7 @@ const HEAD_LENGTH = 8
 
 var (
 	HEAD_MAGIC = []byte{'a', 'a', 'v', '1'}
+	NOOP_BYTES = []byte{MSG_NOOP, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
 
 	ErrMagicNumber    = errors.New("magic number is error.")
 	ErrLengthExceed   = errors.New("message length is exceed.")

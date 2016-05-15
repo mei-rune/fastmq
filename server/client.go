@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync/atomic"
+	"time"
 )
 
 type Client struct {
@@ -50,6 +51,9 @@ func (self *Client) runWrite(c chan interface{}) {
 		return
 	}
 
+	tick := time.NewTicker(1 * time.Minute)
+	defer tick.Stop()
+
 	var msg_ch chan Message
 
 	for 0 == atomic.LoadInt32(&self.closed) &&
@@ -85,6 +89,11 @@ func (self *Client) runWrite(c chan interface{}) {
 					self.srv.logf("[client - %s] fail to send data message, %s", self.remoteAddr, err)
 					return
 				}
+			}
+		case <-tick.C:
+			if err := sendFull(conn, NOOP_BYTES); err != nil {
+				self.srv.logf("[client - %s] fail to send noop message, %s", self.remoteAddr, err)
+				return
 			}
 		}
 	}
