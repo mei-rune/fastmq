@@ -31,6 +31,7 @@ const (
 	MSG_DATA  = 'd'
 	MSG_PUB   = 'p'
 	MSG_SUB   = 's'
+	MSG_NOOP  = 'n'
 )
 
 type Message []byte

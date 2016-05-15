@@ -130,6 +130,8 @@ func (self *Client) runRead(c chan interface{}) {
 
 func (self *Client) execute(ctx *execCtx, msg Message) bool {
 	switch msg.Command() {
+	case MSG_NOOP:
+		return true
 	case MSG_ERROR:
 		self.srv.logf("ERROR: client(%s) recv error - %s", self.remoteAddr, string(msg.Data()))
 		return false
