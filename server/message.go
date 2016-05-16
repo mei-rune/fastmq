@@ -2,7 +2,7 @@ package server
 
 import (
 	"errors"
-	"net"
+	"io"
 )
 
 // message format
@@ -54,7 +54,7 @@ func (self Message) ToBytes() []byte {
 }
 
 type Reader struct {
-	conn   net.Conn
+	conn   io.Reader
 	buffer []byte
 	start  int
 	end    int
@@ -63,18 +63,24 @@ type Reader struct {
 }
 
 func readLength(bs []byte) (int, error) {
+	// fmt.Println(bs)
 	start := 0
 	for ' ' == bs[start] {
 		start++
 	}
+	if start >= 5 {
+		return 0, ErrLengthNotDigit
+	}
 
 	length := int(bs[start] - '0')
 	if length > 9 {
+		//fmt.Println(bs[start], start)
 		return 0, ErrLengthNotDigit
 	}
 	start++
-	for start < 6 {
+	for ; start < 5; start++ {
 		if l := int(bs[start] - '0'); l > 9 {
+			//fmt.Println(bs[start], start)
 			return 0, ErrLengthNotDigit
 		} else {
 			length *= 10
@@ -85,13 +91,16 @@ func readLength(bs []byte) (int, error) {
 }
 
 func (self *Reader) ensureCapacity(size int) {
+	//fmt.Println("ensureCapacity", size, self.buffer_size)
 	if self.buffer_size > size {
 		size = self.buffer_size
 	}
+	//fmt.Println("ensureCapacity", size, self.buffer_size)
 	tmp := MakeBytes(size)
 	self.end = copy(tmp, self.buffer[self.start:self.end])
 	self.start = 0
 	self.buffer = tmp
+	//fmt.Println(len(tmp))
 }
 
 func (self *Reader) nextMessage() (bool, Message, error) {
@@ -109,6 +118,7 @@ func (self *Reader) nextMessage() (bool, Message, error) {
 	if err != nil {
 		return false, nil, err
 	}
+	//fmt.Println(msg_data_length, length, self.end, self.start, len(self.buffer))
 
 	if msg_data_length > MAX_MESSAGE_LENGTH {
 		return false, nil, ErrLengthExceed
@@ -149,7 +159,7 @@ func (self *Reader) ReadMessage() (Message, error) {
 	return nil, err
 }
 
-func NewMessageReader(conn net.Conn, size int) *Reader {
+func NewMessageReader(conn io.Reader, size int) *Reader {
 	return &Reader{
 		conn:        conn,
 		buffer:      MakeBytes(size),
@@ -168,7 +178,16 @@ func (self *MeesageBuilder) Init(cmd byte, capacity int) {
 	self.buffer[0] = cmd
 	self.buffer[1] = ' '
 	self.buffer[7] = '\n'
-	self.buffer = self.buffer[HEAD_LENGTH:]
+	self.buffer = self.buffer[:HEAD_LENGTH]
+}
+
+func (self *MeesageBuilder) Append(bs []byte) *MeesageBuilder {
+	if len(self.buffer)+len(bs) > MAX_MESSAGE_LENGTH {
+		panic(ErrLengthExceed)
+	}
+
+	self.buffer = append(self.buffer, bs...)
+	return self
 }
 
 func (self *MeesageBuilder) Write(bs []byte) (int, error) {
@@ -189,7 +208,7 @@ func (self *MeesageBuilder) WriteString(s string) (int, error) {
 	return len(s), nil
 }
 
-func (self *MeesageBuilder) Build() []byte {
+func (self *MeesageBuilder) Build() Message {
 	length := len(self.buffer) - HEAD_LENGTH
 	switch {
 	case length > 65535:
@@ -225,7 +244,7 @@ func (self *MeesageBuilder) Build() []byte {
 		self.buffer[5] = ' '
 		self.buffer[6] = '0' + byte(length)
 	}
-	return self.buffer
+	return Message(self.buffer)
 }
 
 func NewMessageWriter(cmd byte, capacity int) *MeesageBuilder {
