@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"net"
 	"sync/atomic"
 	"time"
@@ -103,19 +102,6 @@ func (self *Client) runRead(c chan interface{}) {
 	self.srv.logf("TCP: client(%s) is reading", self.remoteAddr)
 
 	conn := self.conn
-
-	buf := make([]byte, len(HEAD_MAGIC))
-	_, err := io.ReadFull(conn, buf)
-	if err != nil {
-		self.srv.logf("ERROR: failed to read protocol version - %s", err)
-		return
-	}
-
-	if !bytes.Equal(buf, HEAD_MAGIC) {
-		self.srv.logf("ERROR: client(%s) bad protocol magic '%s'",
-			self.remoteAddr, string(buf))
-		return
-	}
 
 	var ctx execCtx
 	defer ctx.Reset()

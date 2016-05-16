@@ -98,6 +98,26 @@ func (self *Server) runLoop(listener net.Listener) {
 		remoteAddr := clientConn.RemoteAddr().String()
 
 		WaitGroupWrap(&self.waitGroup, func() {
+
+			buf := make([]byte, len(HEAD_MAGIC))
+			_, err := io.ReadFull(clientConn, buf)
+			if err != nil {
+				self.logf("ERROR: client(%s) failed to read protocol version - %s",
+					remoteAddr, err)
+				clientConn.Close()
+				return
+			}
+			if !bytes.Equal(buf, HEAD_MAGIC) {
+				self.logf("ERROR: client(%s) bad protocol magic '%s'",
+					remoteAddr, string(buf))
+				clientConn.Close()
+				return
+			}
+			if err := sendFull(clientConn, HEAD_MAGIC); err != nil {
+				self.logf("ERROR: client(%s) fail to send magic bytes, %s", remoteAddr, err)
+				return
+			}
+
 			client := &Client{
 				srv:        self,
 				remoteAddr: remoteAddr,
@@ -121,7 +141,6 @@ func (self *Server) runLoop(listener net.Listener) {
 			ch := make(chan interface{}, 10)
 			WaitGroupWrap(&self.waitGroup, func() {
 				client.runWrite(ch)
-
 				client.Close()
 			})
 
