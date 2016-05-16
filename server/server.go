@@ -99,6 +99,7 @@ func (self *Server) runLoop(listener net.Listener) {
 
 		WaitGroupWrap(&self.waitGroup, func() {
 
+			////////////////////// begin check magic bytes  //////////////////////////
 			buf := make([]byte, len(HEAD_MAGIC))
 			_, err := io.ReadFull(clientConn, buf)
 			if err != nil {
@@ -117,6 +118,7 @@ func (self *Server) runLoop(listener net.Listener) {
 				self.logf("ERROR: client(%s) fail to send magic bytes, %s", remoteAddr, err)
 				return
 			}
+			////////////////////// end check magic bytes  //////////////////////////
 
 			client := &Client{
 				srv:        self,
@@ -140,6 +142,8 @@ func (self *Server) runLoop(listener net.Listener) {
 
 			ch := make(chan interface{}, 10)
 			WaitGroupWrap(&self.waitGroup, func() {
+				defer self.catchThrow("[" + remoteAddr + "]")
+
 				client.runWrite(ch)
 				client.Close()
 			})
