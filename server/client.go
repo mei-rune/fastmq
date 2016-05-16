@@ -40,15 +40,6 @@ func (self *Client) runWrite(c chan interface{}) {
 	self.srv.logf("[write - %s] TCP: client(%s) is writing", self.remoteAddr, self.remoteAddr)
 
 	conn := self.conn
-	n, err := conn.Write(HEAD_MAGIC)
-	if err != nil {
-		self.srv.logf("[write - %s] fail to send magic bytes, %s", self.remoteAddr, err)
-		return
-	}
-	if n != len(HEAD_MAGIC) {
-		self.srv.logf("[client - %s] fail to send magic bytes", self.remoteAddr)
-		return
-	}
 
 	tick := time.NewTicker(1 * time.Minute)
 	defer tick.Stop()
