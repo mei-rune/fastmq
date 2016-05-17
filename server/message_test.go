@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 )
@@ -65,7 +66,16 @@ func TestMessageReadLength(t *testing.T) {
 			continue
 		}
 
-		assertEq(t, NewMessageReader(strings.NewReader(s.input), 100), s.input, s.excepted)
+		rd := NewMessageReader(strings.NewReader(s.input), 100)
+		assertEq(t, rd, s.input, s.excepted)
+
+		msg, err := rd.ReadMessage()
+		if io.EOF != err {
+			t.Error(err)
+		}
+		if nil != msg {
+			t.Error("don't read message.")
+		}
 	}
 
 	for _, s := range ok_tests {

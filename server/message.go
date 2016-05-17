@@ -126,7 +126,9 @@ func (self *Reader) nextMessage() (bool, Message, error) {
 
 	msg_total_length := msg_data_length + HEAD_LENGTH
 	if msg_total_length <= length {
-		return true, Message(self.buffer[self.start : self.start+msg_total_length]), nil
+		bs := self.buffer[self.start : self.start+msg_total_length]
+		self.start += msg_total_length
+		return true, Message(bs), nil
 	}
 
 	msg_residue := msg_total_length - length

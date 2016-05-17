@@ -95,66 +95,69 @@ func (self *Server) runLoop(listener net.Listener) {
 			break
 		}
 
-		remoteAddr := clientConn.RemoteAddr().String()
-
-		WaitGroupWrap(&self.waitGroup, func() {
-
-			////////////////////// begin check magic bytes  //////////////////////////
-			buf := make([]byte, len(HEAD_MAGIC))
-			_, err := io.ReadFull(clientConn, buf)
-			if err != nil {
-				self.logf("ERROR: client(%s) failed to read protocol version - %s",
-					remoteAddr, err)
-				clientConn.Close()
-				return
-			}
-			if !bytes.Equal(buf, HEAD_MAGIC) {
-				self.logf("ERROR: client(%s) bad protocol magic '%s'",
-					remoteAddr, string(buf))
-				clientConn.Close()
-				return
-			}
-			if err := sendFull(clientConn, HEAD_MAGIC); err != nil {
-				self.logf("ERROR: client(%s) fail to send magic bytes, %s", remoteAddr, err)
-				return
-			}
-			////////////////////// end check magic bytes  //////////////////////////
-
-			client := &Client{
-				srv:        self,
-				remoteAddr: remoteAddr,
-				conn:       clientConn,
-			}
-
-			defer self.catchThrow("[" + remoteAddr + "]")
-
-			self.clients_lock.Lock()
-			el := self.clients.PushBack(client)
-			self.clients_lock.Unlock()
-
-			defer func() {
-				self.clients_lock.Lock()
-				self.clients.Remove(el)
-				self.clients_lock.Unlock()
-
-				client.Close()
-			}()
-
-			ch := make(chan interface{}, 10)
-			WaitGroupWrap(&self.waitGroup, func() {
-				defer self.catchThrow("[" + remoteAddr + "]")
-
-				client.runWrite(ch)
-				client.Close()
-			})
-
-			client.runRead(ch)
-			close(ch)
-		})
-
+		self.handleConnection(clientConn)
 	}
 
 	self.logf("TCP: closing %s", listener.Addr())
+}
+
+func (self *Server) handleConnection(clientConn net.Conn) {
+	remoteAddr := clientConn.RemoteAddr().String()
+
+	WaitGroupWrap(&self.waitGroup, func() {
+
+		////////////////////// begin check magic bytes  //////////////////////////
+		buf := make([]byte, len(HEAD_MAGIC))
+		_, err := io.ReadFull(clientConn, buf)
+		if err != nil {
+			self.logf("ERROR: client(%s) failed to read protocol version - %s",
+				remoteAddr, err)
+			clientConn.Close()
+			return
+		}
+		if !bytes.Equal(buf, HEAD_MAGIC) {
+			self.logf("ERROR: client(%s) bad protocol magic '%s'",
+				remoteAddr, string(buf))
+			clientConn.Close()
+			return
+		}
+		if err := sendFull(clientConn, HEAD_MAGIC); err != nil {
+			self.logf("ERROR: client(%s) fail to send magic bytes, %s", remoteAddr, err)
+			return
+		}
+		////////////////////// end check magic bytes  //////////////////////////
+
+		client := &Client{
+			srv:        self,
+			remoteAddr: remoteAddr,
+			conn:       clientConn,
+		}
+
+		defer self.catchThrow("[" + remoteAddr + "]")
+
+		self.clients_lock.Lock()
+		el := self.clients.PushBack(client)
+		self.clients_lock.Unlock()
+
+		defer func() {
+			self.clients_lock.Lock()
+			self.clients.Remove(el)
+			self.clients_lock.Unlock()
+
+			client.Close()
+		}()
+
+		ch := make(chan interface{}, 10)
+		WaitGroupWrap(&self.waitGroup, func() {
+			defer self.catchThrow("[" + remoteAddr + "]")
+
+			client.runWrite(ch)
+			client.Close()
+		})
+
+		client.runRead(ch)
+		close(ch)
+	})
 }
 
 func (self *Server) createQueueIfNotExists(name string) *Queue {
@@ -200,6 +203,8 @@ func (self *Server) createTopicIfNotExists(name string) *Topic {
 }
 
 func NewServer(opts *Options) (*Server, error) {
+	opts.ensureDefault()
+
 	listener, err := net.Listen("tcp", opts.TCPAddress)
 	if err != nil {
 		return nil, err

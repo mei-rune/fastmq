@@ -95,6 +95,9 @@ func (self *Client) runRead(c chan interface{}) {
 	conn := self.conn
 
 	var ctx execCtx
+	ctx.c = c
+	ctx.srv = self.srv
+	ctx.client = self
 	defer ctx.Reset()
 
 	reader := NewMessageReader(conn, self.srv.options.MsgBufferSize)
@@ -108,18 +111,26 @@ func (self *Client) runRead(c chan interface{}) {
 		if nil == msg {
 			continue
 		}
-		if !self.execute(&ctx, msg) {
+		if !ctx.execute(msg) {
 			break
 		}
 	}
 }
 
-func (self *Client) execute(ctx *execCtx, msg Message) bool {
+type execCtx struct {
+	srv      *Server
+	client   *Client
+	c        chan interface{}
+	producer Producer
+	consumer *Consumer
+}
+
+func (ctx *execCtx) execute(msg Message) bool {
 	switch msg.Command() {
 	case MSG_NOOP:
 		return true
 	case MSG_ERROR:
-		self.srv.logf("ERROR: client(%s) recv error - %s", self.remoteAddr, string(msg.Data()))
+		ctx.srv.logf("ERROR: client(%s) recv error - %s", ctx.client.remoteAddr, string(msg.Data()))
 		return false
 	case MSG_DATA:
 		if ctx.producer == nil {
@@ -133,6 +144,7 @@ func (self *Client) execute(ctx *execCtx, msg Message) bool {
 		}
 		return true
 	case MSG_PUB:
+		fmt.Println(string(msg.Data()))
 		ss := bytes.Fields(msg.Data())
 		if 2 != len(ss) {
 			ctx.c <- &errorCommand{msg: BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
@@ -141,9 +153,9 @@ func (self *Client) execute(ctx *execCtx, msg Message) bool {
 
 		var queue Channel
 		if bytes.Equal(ss[0], []byte("queue")) {
-			queue = self.srv.createQueueIfNotExists(string(ss[1]))
+			queue = ctx.srv.createQueueIfNotExists(string(ss[1]))
 		} else if bytes.Equal(ss[0], []byte("topic")) {
-			queue = self.srv.createTopicIfNotExists(string(ss[1]))
+			queue = ctx.srv.createTopicIfNotExists(string(ss[1]))
 		} else {
 			ctx.c <- &errorCommand{msg: BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
 			return true
@@ -160,9 +172,9 @@ func (self *Client) execute(ctx *execCtx, msg Message) bool {
 		}
 		var queue Channel
 		if bytes.Equal(ss[0], []byte("queue")) {
-			queue = self.srv.createQueueIfNotExists(string(ss[1]))
+			queue = ctx.srv.createQueueIfNotExists(string(ss[1]))
 		} else if bytes.Equal(ss[0], []byte("topic")) {
-			queue = self.srv.createTopicIfNotExists(string(ss[1]))
+			queue = ctx.srv.createTopicIfNotExists(string(ss[1]))
 		} else {
 			ctx.c <- &errorCommand{msg: BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
 			return true
@@ -178,12 +190,6 @@ func (self *Client) execute(ctx *execCtx, msg Message) bool {
 		ctx.c <- &errorCommand{msg: BuildErrorMessage(fmt.Sprintf("unknown command - %v.", msg.Command()))}
 		return true // don't exit, write thread will exit when recv error.
 	}
-}
-
-type execCtx struct {
-	c        chan interface{}
-	producer Producer
-	consumer *Consumer
 }
 
 func (self *execCtx) Reset() error {

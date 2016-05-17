@@ -23,19 +23,35 @@ type Options struct {
 	Logger *log.Logger
 }
 
-func NewOptions() *Options {
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Fatal(err)
+func (self *Options) ensureDefault() {
+
+	if self.ID == 0 {
+		hostname, err := os.Hostname()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		h := md5.New()
+		io.WriteString(h, hostname)
+		self.ID = int64(crc32.ChecksumIEEE(h.Sum(nil)) % 1024)
 	}
 
-	h := md5.New()
-	io.WriteString(h, hostname)
-	defaultID := int64(crc32.ChecksumIEEE(h.Sum(nil)) % 1024)
+	if self.TCPAddress == "" {
+		self.TCPAddress = "0.0.0.0:4150"
+	}
 
-	return &Options{
-		ID:         defaultID,
-		TCPAddress: "0.0.0.0:4150",
-		Logger:     log.New(os.Stderr, "[aa] ", log.Ldate|log.Ltime|log.Lmicroseconds),
+	if self.MsgBufferSize <= 8 {
+		self.MsgBufferSize = 8
+	}
+
+	if self.MsgTimeout <= 0 {
+		self.MsgTimeout = 1 * time.Second
+	}
+	if self.MsgQueueCapacity <= 0 {
+		self.MsgQueueCapacity = 200
+	}
+
+	if self.Logger == nil {
+		self.Logger = log.New(os.Stderr, "[aa] ", log.Ldate|log.Ltime|log.Lmicroseconds)
 	}
 }

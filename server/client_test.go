@@ -1,0 +1,99 @@
+package server
+
+import (
+	"bytes"
+	"net"
+	"testing"
+)
+
+func CreateTcp() (net.Conn, net.Conn) {
+	srv, err := net.Listen("tcp", ":")
+	if nil != err {
+		panic(err)
+	}
+	defer srv.Close()
+
+	_, port, err := net.SplitHostPort(srv.Addr().String())
+	if nil != err {
+		panic(err)
+	}
+
+	ch := make(chan net.Conn, 1)
+
+	go func() {
+		conn, err := srv.Accept()
+		if nil != err {
+			panic(err)
+		}
+		ch <- conn
+	}()
+
+	conn1, err := net.Dial("tcp", "127.0.0.1:"+port)
+	if nil != err {
+		panic(err)
+	}
+
+	return conn1, <-ch
+}
+
+func TestClientPublishMessage(t *testing.T) {
+	for _, s := range []string{"topic", "queue"} {
+		func() {
+			srv, err := NewServer(&Options{})
+			if nil != err {
+				t.Error(err)
+				return
+			}
+			defer srv.Close()
+
+			conn1, conn2 := CreateTcp()
+			defer func() {
+				conn1.Close()
+				conn2.Close()
+			}()
+
+			client := &Client{
+				srv:        srv,
+				remoteAddr: "aa",
+				conn:       conn1,
+			}
+
+			ch := make(chan interface{}, 10)
+			go func() {
+				client.runRead(ch)
+			}()
+
+			var channel Channel
+			if "topic" == s {
+				channel = srv.createTopicIfNotExists("a")
+			} else {
+				channel = srv.createQueueIfNotExists("a")
+			}
+			sub := channel.ListenOn()
+			defer sub.Close()
+
+			_, err = conn2.Write(NewMessageWriter(MSG_PUB, 10).Append([]byte(s + " a")).Build().ToBytes())
+			if nil != err {
+				t.Error(err)
+				return
+			}
+
+			pingBytes := NewMessageWriter(MSG_DATA, 10).Append([]byte("aa")).Build().ToBytes()
+			_, err = conn2.Write(pingBytes)
+			if nil != err {
+				t.Error(err)
+				return
+			}
+			m := <-ch
+			if _, ok := m.(*pubCommand); !ok {
+				t.Errorf("it isn't pub - %T", m)
+				return
+			}
+
+			recvMessage := <-sub.C
+			if !bytes.Equal(pingBytes, recvMessage.ToBytes()) {
+				t.Error(recvMessage)
+			}
+		}()
+	}
+}
