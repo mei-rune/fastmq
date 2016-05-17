@@ -26,7 +26,7 @@ func (self *Client) Close() error {
 }
 
 func sendFull(conn net.Conn, data []byte) error {
-	for len(data) == 0 {
+	for len(data) != 0 {
 		n, err := conn.Write(data)
 		if err != nil {
 			return err
@@ -74,11 +74,10 @@ func (self *Client) runWrite(c chan interface{}) {
 					self.srv.logf("[client - %s] fail to send closed message, %s", self.remoteAddr, err)
 				}
 				return
-			} else {
-				if err := sendFull(conn, data.ToBytes()); err != nil {
-					self.srv.logf("[client - %s] fail to send data message, %s", self.remoteAddr, err)
-					return
-				}
+			}
+			if err := sendFull(conn, data.ToBytes()); err != nil {
+				self.srv.logf("[client - %s] fail to send data message, %s", self.remoteAddr, err)
+				return
 			}
 		case <-tick.C:
 			if err := sendFull(conn, NOOP_BYTES); err != nil {
@@ -144,7 +143,6 @@ func (ctx *execCtx) execute(msg Message) bool {
 		}
 		return true
 	case MSG_PUB:
-		fmt.Println(string(msg.Data()))
 		ss := bytes.Fields(msg.Data())
 		if 2 != len(ss) {
 			ctx.c <- &errorCommand{msg: BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
@@ -183,6 +181,7 @@ func (ctx *execCtx) execute(msg Message) bool {
 			ctx.c <- &errorCommand{msg: BuildErrorMessage("failed to reset context, " + err.Error())}
 			return true
 		}
+
 		ctx.consumer = queue.ListenOn()
 		ctx.c <- &subCommand{ch: ctx.consumer.C}
 		return true
