@@ -79,20 +79,25 @@ func TestClientPublishMessage(t *testing.T) {
 			}
 
 			pingBytes := NewMessageWriter(MSG_DATA, 10).Append([]byte("aa")).Build().ToBytes()
-			_, err = conn2.Write(pingBytes)
-			if nil != err {
-				t.Error(err)
-				return
+			for i := 0; i < 100; i++ {
+				_, err = conn2.Write(pingBytes)
+				if nil != err {
+					t.Error(err)
+					return
+				}
 			}
-			m := <-ch
-			if _, ok := m.(*pubCommand); !ok {
-				t.Errorf("it isn't pub - %T", m)
+
+			command := <-ch
+			if _, ok := command.(*pubCommand); !ok {
+				t.Errorf("it isn't pub - %T", command)
 				return
 			}
 
-			recvMessage := <-sub.C
-			if !bytes.Equal(pingBytes, recvMessage.ToBytes()) {
-				t.Error(recvMessage)
+			for i := 0; i < 100; i++ {
+				recvMessage := <-sub.C
+				if !bytes.Equal(pingBytes, recvMessage.ToBytes()) {
+					t.Error(recvMessage)
+				}
 			}
 		}()
 	}
