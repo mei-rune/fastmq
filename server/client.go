@@ -6,6 +6,8 @@ import (
 	"net"
 	"sync/atomic"
 	"time"
+
+	mq "fastmq"
 )
 
 type Client struct {
@@ -25,17 +27,6 @@ func (self *Client) Close() error {
 	return nil
 }
 
-func sendFull(conn net.Conn, data []byte) error {
-	for len(data) != 0 {
-		n, err := conn.Write(data)
-		if err != nil {
-			return err
-		}
-		data = data[n:]
-	}
-	return nil
-}
-
 func (self *Client) runWrite(c chan interface{}) {
 	self.srv.logf("[write - %s] TCP: client(%s) is writing", self.remoteAddr, self.remoteAddr)
 
@@ -44,7 +35,7 @@ func (self *Client) runWrite(c chan interface{}) {
 	tick := time.NewTicker(1 * time.Minute)
 	defer tick.Stop()
 
-	var msg_ch chan Message
+	var msg_ch chan mq.Message
 
 	for 0 == atomic.LoadInt32(&self.closed) &&
 		0 == atomic.LoadInt32(&self.srv.is_stopped) {
@@ -55,7 +46,7 @@ func (self *Client) runWrite(c chan interface{}) {
 			}
 			switch cmd := v.(type) {
 			case *errorCommand:
-				if err := sendFull(conn, cmd.msg.ToBytes()); err != nil {
+				if err := mq.SendFull(conn, cmd.msg.ToBytes()); err != nil {
 					self.srv.logf("[client - %s] fail to send error message, %s", self.remoteAddr, err)
 				}
 				return
@@ -69,18 +60,18 @@ func (self *Client) runWrite(c chan interface{}) {
 			}
 		case data, ok := <-msg_ch:
 			if !ok {
-				msg := BuildErrorMessage("message channel is closed.")
-				if err := sendFull(conn, msg.ToBytes()); err != nil {
+				msg := mq.BuildErrorMessage("message channel is closed.")
+				if err := mq.SendFull(conn, msg.ToBytes()); err != nil {
 					self.srv.logf("[client - %s] fail to send closed message, %s", self.remoteAddr, err)
 				}
 				return
 			}
-			if err := sendFull(conn, data.ToBytes()); err != nil {
+			if err := mq.SendFull(conn, data.ToBytes()); err != nil {
 				self.srv.logf("[client - %s] fail to send data message, %s", self.remoteAddr, err)
 				return
 			}
 		case <-tick.C:
-			if err := sendFull(conn, NOOP_BYTES); err != nil {
+			if err := mq.SendFull(conn, mq.NOOP_BYTES); err != nil {
 				self.srv.logf("[client - %s] fail to send noop message, %s", self.remoteAddr, err)
 				return
 			}
@@ -99,12 +90,12 @@ func (self *Client) runRead(c chan interface{}) {
 	ctx.client = self
 	defer ctx.Reset()
 
-	reader := NewMessageReader(conn, self.srv.options.MsgBufferSize)
+	reader := mq.NewMessageReader(conn, self.srv.options.MsgBufferSize)
 	for 0 == atomic.LoadInt32(&self.closed) &&
 		0 == atomic.LoadInt32(&self.srv.is_stopped) {
 		msg, err := reader.ReadMessage()
 		if nil != err {
-			c <- &errorCommand{msg: BuildErrorMessage(err.Error())}
+			c <- &errorCommand{msg: mq.BuildErrorMessage(err.Error())}
 			break
 		}
 		if nil == msg {
@@ -124,28 +115,28 @@ type execCtx struct {
 	consumer *Consumer
 }
 
-func (ctx *execCtx) execute(msg Message) bool {
+func (ctx *execCtx) execute(msg mq.Message) bool {
 	switch msg.Command() {
-	case MSG_NOOP:
+	case mq.MSG_NOOP:
 		return true
-	case MSG_ERROR:
+	case mq.MSG_ERROR:
 		ctx.srv.logf("ERROR: client(%s) recv error - %s", ctx.client.remoteAddr, string(msg.Data()))
 		return false
-	case MSG_DATA:
+	case mq.MSG_DATA:
 		if ctx.producer == nil {
-			ctx.c <- &errorCommand{msg: BuildErrorMessage("state error.")}
+			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("state error.")}
 			return true
 		}
 
 		if err := ctx.producer.Send(msg); err != nil {
-			ctx.c <- &errorCommand{msg: BuildErrorMessage("failed to send message, " + err.Error())}
+			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("failed to send message, " + err.Error())}
 			return true
 		}
 		return true
-	case MSG_PUB:
+	case mq.MSG_PUB:
 		ss := bytes.Fields(msg.Data())
 		if 2 != len(ss) {
-			ctx.c <- &errorCommand{msg: BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
+			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
 			return true
 		}
 
@@ -155,17 +146,17 @@ func (ctx *execCtx) execute(msg Message) bool {
 		} else if bytes.Equal(ss[0], []byte("topic")) {
 			queue = ctx.srv.createTopicIfNotExists(string(ss[1]))
 		} else {
-			ctx.c <- &errorCommand{msg: BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
+			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
 			return true
 		}
 
 		ctx.producer = queue
 		ctx.c <- &pubCommand{}
 		return true
-	case MSG_SUB:
+	case mq.MSG_SUB:
 		ss := bytes.Fields(msg.Data())
 		if 2 != len(ss) {
-			ctx.c <- &errorCommand{msg: BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
+			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
 			return true
 		}
 		var queue Channel
@@ -174,11 +165,11 @@ func (ctx *execCtx) execute(msg Message) bool {
 		} else if bytes.Equal(ss[0], []byte("topic")) {
 			queue = ctx.srv.createTopicIfNotExists(string(ss[1]))
 		} else {
-			ctx.c <- &errorCommand{msg: BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
+			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
 			return true
 		}
 		if err := ctx.Reset(); err != nil {
-			ctx.c <- &errorCommand{msg: BuildErrorMessage("failed to reset context, " + err.Error())}
+			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("failed to reset context, " + err.Error())}
 			return true
 		}
 
@@ -186,7 +177,7 @@ func (ctx *execCtx) execute(msg Message) bool {
 		ctx.c <- &subCommand{ch: ctx.consumer.C}
 		return true
 	default:
-		ctx.c <- &errorCommand{msg: BuildErrorMessage(fmt.Sprintf("unknown command - %v.", msg.Command()))}
+		ctx.c <- &errorCommand{msg: mq.BuildErrorMessage(fmt.Sprintf("unknown command - %v.", msg.Command()))}
 		return true // don't exit, write thread will exit when recv error.
 	}
 }
@@ -203,11 +194,11 @@ func (self *execCtx) Reset() error {
 }
 
 type errorCommand struct {
-	msg Message
+	msg mq.Message
 }
 
 type subCommand struct {
-	ch chan Message
+	ch chan mq.Message
 }
 
 type pubCommand struct {

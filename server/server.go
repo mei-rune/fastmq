@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	mq "fastmq"
 )
 
 var ErrAlreadyClosed = errors.New("server is already closed.")
@@ -107,7 +109,7 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 	WaitGroupWrap(&self.waitGroup, func() {
 
 		////////////////////// begin check magic bytes  //////////////////////////
-		buf := make([]byte, len(HEAD_MAGIC))
+		buf := make([]byte, len(mq.HEAD_MAGIC))
 		_, err := io.ReadFull(clientConn, buf)
 		if err != nil {
 			self.logf("ERROR: client(%s) failed to read protocol version - %s",
@@ -115,13 +117,13 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 			clientConn.Close()
 			return
 		}
-		if !bytes.Equal(buf, HEAD_MAGIC) {
+		if !bytes.Equal(buf, mq.HEAD_MAGIC) {
 			self.logf("ERROR: client(%s) bad protocol magic '%s'",
 				remoteAddr, string(buf))
 			clientConn.Close()
 			return
 		}
-		if err := sendFull(clientConn, HEAD_MAGIC); err != nil {
+		if err := mq.SendFull(clientConn, mq.HEAD_MAGIC); err != nil {
 			self.logf("ERROR: client(%s) fail to send magic bytes, %s", remoteAddr, err)
 			return
 		}

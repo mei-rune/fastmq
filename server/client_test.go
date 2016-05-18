@@ -7,6 +7,8 @@ import (
 	_ "net/http/pprof"
 	"testing"
 	"time"
+
+	mq "fastmq"
 )
 
 func CreateTcp() (net.Conn, net.Conn) {
@@ -76,13 +78,13 @@ func TestClientPublishMessage(t *testing.T) {
 			sub := channel.ListenOn()
 			defer sub.Close()
 
-			_, err = conn2.Write(NewMessageWriter(MSG_PUB, 10).Append([]byte(s + " a")).Build().ToBytes())
+			_, err = conn2.Write(mq.NewMessageWriter(mq.MSG_PUB, 10).Append([]byte(s + " a")).Build().ToBytes())
 			if nil != err {
 				t.Error(err)
 				return
 			}
 
-			pingBytes := NewMessageWriter(MSG_DATA, 10).Append([]byte("aa")).Build().ToBytes()
+			pingBytes := mq.NewMessageWriter(mq.MSG_DATA, 10).Append([]byte("aa")).Build().ToBytes()
 			for i := 0; i < 100; i++ {
 				_, err = conn2.Write(pingBytes)
 				if nil != err {
@@ -144,7 +146,7 @@ func TestClientSubscribeMessage(t *testing.T) {
 			// sub := channel.ListenOn()
 			// defer sub.Close()
 
-			_, err = conn2.Write(NewMessageWriter(MSG_SUB, 10).Append([]byte(s + " a")).Build().ToBytes())
+			_, err = conn2.Write(mq.NewMessageWriter(mq.MSG_SUB, 10).Append([]byte(s + " a")).Build().ToBytes())
 			if nil != err {
 				t.Error(err)
 				return
@@ -158,16 +160,16 @@ func TestClientSubscribeMessage(t *testing.T) {
 				channel = srv.createQueueIfNotExists("a")
 			}
 
-			pingMessage := NewMessageWriter(MSG_DATA, 10).Append([]byte("aa")).Build()
+			pingMessage := mq.NewMessageWriter(mq.MSG_DATA, 10).Append([]byte("aa")).Build()
 			go func() {
 				for i := 0; i < 100; i++ {
 					channel.Send(pingMessage)
 				}
 			}()
 
-			rd := NewMessageReader(conn2, 100)
+			rd := mq.NewMessageReader(conn2, 100)
 			for i := 0; i < 100; i++ {
-				var recvMessage Message
+				var recvMessage mq.Message
 				var err error
 				for {
 					recvMessage, err = rd.ReadMessage()

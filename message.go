@@ -1,8 +1,9 @@
-package server
+package client
 
 import (
 	"errors"
 	"io"
+	"net"
 )
 
 // message format
@@ -260,4 +261,15 @@ func BuildErrorMessage(msg string) Message {
 	builder.Init(MSG_ERROR, len(msg))
 	builder.WriteString(msg)
 	return builder.Build()
+}
+
+func SendFull(conn net.Conn, data []byte) error {
+	for len(data) != 0 {
+		n, err := conn.Write(data)
+		if err != nil {
+			return err
+		}
+		data = data[n:]
+	}
+	return nil
 }
