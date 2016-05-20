@@ -2,16 +2,20 @@ package server
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
 	"io/ioutil"
+	"log"
+	"math"
 	"net"
 	"net/http"
-	_ "net/http/pprof"
+	"sync"
 	"testing"
 	"time"
 
 	mq "fastmq"
 	mq_client "fastmq/client"
+	"fmt"
 )
 
 func TestServerPublishMessage(t *testing.T) {
@@ -124,4 +128,105 @@ func TestServerHttp(t *testing.T) {
 		t.Error("body is", string(bs))
 		return
 	}
+}
+
+func TestBenchmarkMqServer(t *testing.T) {
+	go http.ListenAndServe(":", nil)
+
+	srv, err := NewServer(&Options{HttpEnabled: true})
+	if nil != err {
+		t.Error(err)
+		return
+	}
+	defer srv.Close()
+
+	address := "127.0.0.1" + srv.options.TCPAddress
+
+	subClient, err := mq_client.Connect("", address, 512)
+	if nil != err {
+		log.Fatalln(err)
+		return
+	}
+
+	var wait sync.WaitGroup
+	go func() {
+		defer wait.Done()
+		defer subClient.Close()
+
+		var start_at time.Time
+		var message_count uint32 = 0
+		isStarted := false
+
+		cb := func(cli mq_client.SubscribeClient, msg mq.Message) {
+			if !isStarted {
+				start_at = time.Now()
+				isStarted = true
+			}
+
+			id := binary.BigEndian.Uint32(msg.Data())
+
+			if id == math.MaxUint32 {
+				if message_count != 0 {
+					fmt.Println("recv:", message_count, ", elapsed:", time.Now().Sub(start_at))
+					t.Log("recv:", message_count, ", elapsed:", time.Now().Sub(start_at))
+					message_count = 0
+
+					//	fmt.Println("message count = ", message_count)
+					//} else {
+					//	fmt.Println("message count = 0")
+				}
+
+				cli.Close()
+				return
+			}
+			if id != message_count {
+				t.Error(message_count, "-", id)
+			}
+			message_count++
+		}
+		err = subClient.SubscribeQueue("a", cb)
+		if nil != err {
+			t.Error(err)
+			return
+		}
+	}()
+	wait.Add(1)
+
+	time.Sleep(1 * time.Second)
+
+	sendClient, err := mq_client.Connect("", address, 512)
+	if nil != err {
+		t.Error(err)
+		return
+	}
+
+	err = sendClient.SwitchToQueue("a")
+	if nil != err {
+		t.Error(err)
+		return
+	}
+
+	var buf [4]byte
+	for i := uint32(0); i < 10000; i++ {
+		binary.BigEndian.PutUint32(buf[:], i)
+		msg := mq.NewMessageWriter(mq.MSG_DATA, 4+1).Append(buf[:]).Build()
+		if err = sendClient.Send(msg.ToBytes()); nil != err {
+			t.Error(err)
+			return
+		}
+	}
+
+	binary.BigEndian.PutUint32(buf[:], math.MaxUint32)
+	endMsg := mq.NewMessageWriter(mq.MSG_DATA, 4+1).Append(buf[:]).Build()
+	for i := uint32(0); i < 1000; i++ {
+		if err = sendClient.Send(endMsg.ToBytes()); nil != err {
+			t.Error(err)
+			return
+		}
+	}
+	sendClient.Close()
+
+	t.Log("test is ok")
+
+	wait.Wait()
 }

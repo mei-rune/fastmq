@@ -55,6 +55,22 @@ func (self *Server) Close() error {
 		}
 	}()
 
+	func() {
+		self.queues_lock.Lock()
+		defer self.queues_lock.Unlock()
+		for _, v := range self.queues {
+			v.Close()
+		}
+	}()
+
+	func() {
+		self.topics_lock.Lock()
+		defer self.topics_lock.Unlock()
+		for _, v := range self.topics {
+			v.Close()
+		}
+	}()
+
 	self.waitGroup.Wait()
 	return err
 }

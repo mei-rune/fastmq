@@ -136,6 +136,8 @@ type execCtx struct {
 }
 
 func (ctx *execCtx) execute(msg mq.Message) bool {
+	defer ctx.srv.catchThrow("[" + ctx.client.name + "-" + ctx.client.remoteAddr + "] [" + mq.ToCommandName(msg.Command()) + "]")
+
 	switch msg.Command() {
 	case mq.MSG_NOOP:
 		return true

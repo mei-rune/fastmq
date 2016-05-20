@@ -46,6 +46,13 @@ type Queue struct {
 	C    chan mq.Message
 }
 
+func (self *Queue) Close() error {
+	close(self.C)
+	for range self.C {
+	}
+	return nil
+}
+
 func (self *Queue) Send(msg mq.Message) error {
 	self.C <- msg
 	return nil
@@ -65,6 +72,20 @@ type Topic struct {
 	last_id       int
 	channels      []*Consumer
 	channels_lock sync.RWMutex
+}
+
+func (self *Topic) Close() error {
+	self.channels_lock.Lock()
+	channels := self.channels
+	self.channels = nil
+	self.channels_lock.Unlock()
+
+	for _, ch := range channels {
+		close(ch.C)
+		for range ch.C {
+		}
+	}
+	return nil
 }
 
 func (self *Topic) Send(msg mq.Message) error {
