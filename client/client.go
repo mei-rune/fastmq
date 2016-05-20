@@ -22,6 +22,7 @@ func (self *Client) connect(network, address string) error {
 	if err != nil {
 		return err
 	}
+	self.conn = conn
 	if err := self.sendMagic(); err != nil {
 		return err
 	}
@@ -29,13 +30,16 @@ func (self *Client) connect(network, address string) error {
 		return err
 	}
 
-	self.conn = conn
 	self.reader.Init(conn, self.capacity)
 	return nil
 }
 
 func (self *Client) Close() error {
 	return self.conn.Close()
+}
+
+func (self *Client) sendClose() error {
+	return mq.SendFull(self.conn, mq.MSG_CLOSE_BYTES)
 }
 
 func (self *Client) sendMagic() error {
@@ -102,25 +106,72 @@ func (self *Client) exec(msg mq.Message) error {
 	return self.recvAck()
 }
 
-func (self *Client) subscribe(cb func(cli *Client, msg mq.Message)) error {
+func (self *Client) SubscribeQueue(name string, cb func(cli SubscribeClient, msg mq.Message)) error {
+	msg := mq.NewMessageWriter(mq.MSG_SUB, len(name)+mq.HEAD_LENGTH+8)
+	msg.Append([]byte("queue "))
+	msg.Append([]byte(name)).Append([]byte("\n"))
+	if err := self.exec(msg.Build()); err != nil {
+		return err
+	}
+	var sub subClient
+	sub.cli = self
+	return sub.subscribe(cb)
+}
+
+func (self *Client) SubscribeTopic(name string, cb func(cli SubscribeClient, msg mq.Message)) error {
+	msg := mq.NewMessageWriter(mq.MSG_SUB, len(name)+mq.HEAD_LENGTH+8)
+	msg.Append([]byte("topic "))
+	msg.Append([]byte(name)).Append([]byte("\n"))
+	if err := self.exec(msg.Build()); err != nil {
+		return err
+	}
+
+	var sub subClient
+	sub.cli = self
+	return sub.subscribe(cb)
+}
+
+type SubscribeClient interface {
+	io.Closer
+}
+
+type subClient struct {
+	closed bool
+	cli    *Client
+}
+
+func (self *subClient) Close() error {
+	if self.closed {
+		return nil
+	}
+	self.closed = true
+	return self.cli.sendClose()
+}
+
+func (self *subClient) subscribe(cb func(cli SubscribeClient, msg mq.Message)) error {
 	var recvMessage mq.Message
 	var err error
 	for {
-		recvMessage, err = self.reader.ReadMessage()
+		recvMessage, err = self.cli.reader.ReadMessage()
 		if nil != err {
 			if io.EOF == err {
 				return nil
 			}
 			return err
 		}
+
 		if nil != recvMessage {
+			if recvMessage.Command() == mq.MSG_ACK {
+				if self.closed {
+					return nil
+				} else {
+					return mq.ErrUnexceptedAck
+				}
+			}
+
 			cb(self, recvMessage)
 		}
 	}
-}
-
-type SubscribeClient interface {
-	io.Closer
 }
 
 type SubscribeOption struct {
@@ -153,24 +204,14 @@ func Subscribe(options *SubscribeOption, cb func(cli SubscribeClient, msg mq.Mes
 		options.BufferSize = 512
 	}
 
-	var cli = Client{capacity: options.BufferSize}
+	var cli = &Client{capacity: options.BufferSize}
 	if err := cli.connect(options.Network, options.Address); err != nil {
 		return err
 	}
 
-	subMessage := mq.NewMessageWriter(mq.MSG_SUB, len(options.Name)+mq.HEAD_LENGTH+6)
 	if options.IsTopic {
-		subMessage.Append([]byte("topic "))
+		return cli.SubscribeTopic(options.Name, cb)
 	} else {
-		subMessage.Append([]byte("queue "))
+		return cli.SubscribeQueue(options.Name, cb)
 	}
-	subMessage.Append([]byte(options.Name)).Append([]byte("\n"))
-
-	if err := cli.exec(subMessage.Build()); err != nil {
-		return err
-	}
-
-	return cli.subscribe(func(cli *Client, msg mq.Message) {
-		cb(cli, msg)
-	})
 }

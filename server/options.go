@@ -37,7 +37,7 @@ func (self *Options) ensureDefault() {
 	}
 
 	if self.TCPAddress == "" {
-		self.TCPAddress = "0.0.0.0:4150"
+		self.TCPAddress = ":4150"
 	}
 
 	if self.MsgBufferSize <= 8 {

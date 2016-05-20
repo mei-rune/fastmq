@@ -2,8 +2,9 @@ package server
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"net"
-	"net/http"
 	_ "net/http/pprof"
 	"testing"
 	"time"
@@ -109,8 +110,19 @@ func TestClientPublishMessage(t *testing.T) {
 	}
 }
 
+func readAck(conn net.Conn) error {
+	var buf = make([]byte, len(mq.MSG_ACK_BYTES))
+	if _, err := io.ReadFull(conn, buf); nil != err {
+		return err
+	}
+	if !bytes.Equal(buf, mq.MSG_ACK_BYTES) {
+		return errors.New("ack is error - " + string(buf))
+	}
+	return nil
+}
+
 func TestClientSubscribeMessage(t *testing.T) {
-	go http.ListenAndServe(":", nil)
+	//go http.ListenAndServe(":", nil)
 
 	for _, s := range []string{"topic", "queue"} {
 		func() {
@@ -167,6 +179,11 @@ func TestClientSubscribeMessage(t *testing.T) {
 				}
 			}()
 
+			if err = readAck(conn2); nil != err {
+				t.Error(err)
+				return
+			}
+
 			rd := mq.NewMessageReader(conn2, 100)
 			for i := 0; i < 100; i++ {
 				var recvMessage mq.Message
@@ -183,7 +200,8 @@ func TestClientSubscribeMessage(t *testing.T) {
 				}
 
 				if !bytes.Equal(pingMessage.ToBytes(), recvMessage.ToBytes()) {
-					t.Error(recvMessage)
+					t.Log("excepted is", pingMessage.ToBytes())
+					t.Error("actual is", recvMessage, mq.ToCommandName(recvMessage[0]))
 				}
 			}
 		}()

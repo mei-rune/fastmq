@@ -20,10 +20,12 @@ const MAX_MESSAGE_LENGTH = 65523
 const HEAD_LENGTH = 8
 
 var (
-	HEAD_MAGIC     = []byte{'a', 'a', 'v', '1'}
-	MSG_NOOP_BYTES = []byte{MSG_NOOP, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
-	MSG_ACK_BYTES  = []byte{MSG_ACK, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
+	HEAD_MAGIC      = []byte{'a', 'a', 'v', '1'}
+	MSG_NOOP_BYTES  = []byte{MSG_NOOP, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
+	MSG_ACK_BYTES   = []byte{MSG_ACK, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
+	MSG_CLOSE_BYTES = []byte{MSG_CLOSE, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
 
+	ErrUnexceptedAck  = errors.New("recv a unexcepted ack message.")
 	ErrEmptyString    = errors.New("empty error message.")
 	ErrMagicNumber    = errors.New("magic number is error.")
 	ErrLengthExceed   = errors.New("message length is exceed.")
@@ -37,7 +39,29 @@ const (
 	MSG_SUB   = 's'
 	MSG_ACK   = 'a'
 	MSG_NOOP  = 'n'
+	MSG_CLOSE = 'c'
 )
+
+func ToCommandName(cmd byte) string {
+	switch cmd {
+	case MSG_ERROR:
+		return "MSG_ERROR"
+	case MSG_DATA:
+		return "MSG_DATA"
+	case MSG_PUB:
+		return "MSG_PUB"
+	case MSG_SUB:
+		return "MSG_SUB"
+	case MSG_ACK:
+		return "MSG_ACK"
+	case MSG_NOOP:
+		return "MSG_NOOP"
+	case MSG_CLOSE:
+		return "MSG_CLOSE"
+	default:
+		return "UNKNOWN-" + string(cmd)
+	}
+}
 
 type Message []byte
 

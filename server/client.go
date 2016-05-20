@@ -51,9 +51,26 @@ func (self *Client) runWrite(c chan interface{}) {
 				}
 				return
 			case *subCommand:
+				if err := mq.SendFull(conn, mq.MSG_ACK_BYTES); err != nil {
+					self.srv.logf("[client - %s] fail to send ack message, %s", self.remoteAddr, err)
+					return
+				}
+
 				msg_ch = cmd.ch
 			case *pubCommand:
 				msg_ch = nil
+
+				if err := mq.SendFull(conn, mq.MSG_ACK_BYTES); err != nil {
+					self.srv.logf("[client - %s] fail to send ack message, %s", self.remoteAddr, err)
+					return
+				}
+
+			case *closeCommand:
+				msg_ch = nil
+				if err := mq.SendFull(conn, mq.MSG_ACK_BYTES); err != nil {
+					self.srv.logf("[client - %s] fail to send ack message, %s", self.remoteAddr, err)
+					return
+				}
 			default:
 				self.srv.logf("[client - %s] unknown command - %T", self.remoteAddr, v)
 				return
@@ -122,6 +139,14 @@ func (ctx *execCtx) execute(msg mq.Message) bool {
 	case mq.MSG_ERROR:
 		ctx.srv.logf("ERROR: client(%s) recv error - %s", ctx.client.remoteAddr, string(msg.Data()))
 		return false
+	case mq.MSG_CLOSE:
+		if err := ctx.Reset(); err != nil {
+			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("failed to reset context, " + err.Error())}
+			return true
+		}
+
+		ctx.c <- &closeCommand{}
+		return true
 	case mq.MSG_DATA:
 		if ctx.producer == nil {
 			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("state error.")}
@@ -202,4 +227,7 @@ type subCommand struct {
 }
 
 type pubCommand struct {
+}
+
+type closeCommand struct {
 }
