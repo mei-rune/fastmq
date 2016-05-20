@@ -20,9 +20,11 @@ const MAX_MESSAGE_LENGTH = 65523
 const HEAD_LENGTH = 8
 
 var (
-	HEAD_MAGIC = []byte{'a', 'a', 'v', '1'}
-	NOOP_BYTES = []byte{MSG_NOOP, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
+	HEAD_MAGIC     = []byte{'a', 'a', 'v', '1'}
+	MSG_NOOP_BYTES = []byte{MSG_NOOP, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
+	MSG_ACK_BYTES  = []byte{MSG_ACK, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
 
+	ErrEmptyString    = errors.New("empty error message.")
 	ErrMagicNumber    = errors.New("magic number is error.")
 	ErrLengthExceed   = errors.New("message length is exceed.")
 	ErrLengthNotDigit = errors.New("length field of message isn't number.")
@@ -33,6 +35,7 @@ const (
 	MSG_DATA  = 'd'
 	MSG_PUB   = 'p'
 	MSG_SUB   = 's'
+	MSG_ACK   = 'a'
 	MSG_NOOP  = 'n'
 )
 
@@ -61,6 +64,14 @@ type Reader struct {
 	end    int
 
 	buffer_size int
+}
+
+func (self *Reader) Init(conn io.Reader, size int) {
+	self.conn = conn
+	self.buffer = MakeBytes(size)
+	self.start = 0
+	self.end = 0
+	self.buffer_size = size
 }
 
 func readLength(bs []byte) (int, error) {
@@ -213,6 +224,11 @@ func (self *MeesageBuilder) WriteString(s string) (int, error) {
 
 func (self *MeesageBuilder) Build() Message {
 	length := len(self.buffer) - HEAD_LENGTH
+	//if length < 65535 {
+	//	self.buffer = append(self.buffer, '\n')
+	//	length++
+	//}
+
 	switch {
 	case length > 65535:
 		panic(ErrLengthExceed)
@@ -272,4 +288,14 @@ func SendFull(conn net.Conn, data []byte) error {
 		data = data[n:]
 	}
 	return nil
+}
+
+func ToError(msg Message) error {
+	if MSG_ERROR != msg.Command() {
+		panic(errors.New("it isn't a error message."))
+	}
+	if msg.DataLength() == 0 {
+		return ErrEmptyString
+	}
+	return errors.New(string(msg.Data()))
 }

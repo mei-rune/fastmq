@@ -71,7 +71,7 @@ func (self *Client) runWrite(c chan interface{}) {
 				return
 			}
 		case <-tick.C:
-			if err := mq.SendFull(conn, mq.NOOP_BYTES); err != nil {
+			if err := mq.SendFull(conn, mq.MSG_NOOP_BYTES); err != nil {
 				self.srv.logf("[client - %s] fail to send noop message, %s", self.remoteAddr, err)
 				return
 			}

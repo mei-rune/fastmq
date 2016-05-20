@@ -78,6 +78,14 @@ func (self *Server) catchThrow(ctx string) {
 	}
 }
 
+func (self *Server) runItInGoroutine(cb func()) {
+	self.waitGroup.Add(1)
+	go func() {
+		cb()
+		self.waitGroup.Done()
+	}()
+}
+
 func (self *Server) runLoop(listener net.Listener) {
 	self.logf("TCP: listening on %s", listener.Addr())
 
@@ -106,7 +114,7 @@ func (self *Server) runLoop(listener net.Listener) {
 func (self *Server) handleConnection(clientConn net.Conn) {
 	remoteAddr := clientConn.RemoteAddr().String()
 
-	WaitGroupWrap(&self.waitGroup, func() {
+	self.runItInGoroutine(func() {
 
 		////////////////////// begin check magic bytes  //////////////////////////
 		buf := make([]byte, len(mq.HEAD_MAGIC))
@@ -150,7 +158,7 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 		}()
 
 		ch := make(chan interface{}, 10)
-		WaitGroupWrap(&self.waitGroup, func() {
+		self.runItInGoroutine(func() {
 			defer self.catchThrow("[" + remoteAddr + "]")
 
 			client.runWrite(ch)
@@ -220,17 +228,9 @@ func NewServer(opts *Options) (*Server, error) {
 		topics:   map[string]*Topic{},
 	}
 
-	WaitGroupWrap(&srv.waitGroup, func() {
+	srv.runItInGoroutine(func() {
 		srv.runLoop(listener)
 	})
 
 	return srv, nil
-}
-
-func WaitGroupWrap(w *sync.WaitGroup, cb func()) {
-	w.Add(1)
-	go func() {
-		cb()
-		w.Done()
-	}()
 }

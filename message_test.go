@@ -105,7 +105,6 @@ func TestMessageReadMuti(t *testing.T) {
 	}
 
 	for _, s := range ok_tests {
-
 		rd := NewMessageReader(strings.NewReader(s.input), 100)
 		assertEq(t, rd, s.input, s.excepted)
 		assertEq(t, rd, s.input, s.excepted)

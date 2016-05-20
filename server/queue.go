@@ -1,24 +1,32 @@
 package server
 
 import (
-	"container/list"
 	mq "fastmq"
 	"sync"
+	"sync/atomic"
 )
 
 type Consumer struct {
-	topic *Topic
-	el    *list.Element
-	C     chan mq.Message
+	topic        *Topic
+	id           int
+	C            chan mq.Message
+	DiscardCount uint32
+	Count        uint32
+}
+
+func (self *Consumer) addDiscard() {
+	atomic.AddUint32(&self.Count, 1)
+}
+
+func (self *Consumer) add() {
+	atomic.AddUint32(&self.DiscardCount, 1)
 }
 
 func (self *Consumer) Close() error {
 	if nil == self.topic {
 		return nil
 	}
-	self.topic.channels_lock.Lock()
-	self.topic.channels.Remove(self.el)
-	self.topic.channels_lock.Unlock()
+	self.topic.remove(self.id)
 	self.topic = nil
 	return nil
 }
@@ -54,7 +62,8 @@ func creatQueue(srv *Server, name string, capacity int) *Queue {
 type Topic struct {
 	name          string
 	capacity      int
-	channels      *list.List
+	last_id       int
+	channels      []*Consumer
 	channels_lock sync.RWMutex
 }
 
@@ -62,9 +71,12 @@ func (self *Topic) Send(msg mq.Message) error {
 	self.channels_lock.RLock()
 	defer self.channels_lock.RUnlock()
 
-	for el := self.channels.Front(); el != nil; el = el.Next() {
-		if conn, ok := el.Value.(*Consumer); ok {
-			conn.C <- msg
+	for _, consumer := range self.channels {
+		select {
+		case consumer.C <- msg:
+			consumer.add()
+		default:
+			consumer.addDiscard()
 		}
 	}
 	return nil
@@ -74,11 +86,28 @@ func (self *Topic) ListenOn() *Consumer {
 	listener := &Consumer{topic: self, C: make(chan mq.Message, self.capacity)}
 
 	self.channels_lock.Lock()
-	listener.el = self.channels.PushBack(listener)
+	self.last_id++
+	listener.id = self.last_id
+	self.channels = append(self.channels, listener)
 	self.channels_lock.Unlock()
 	return listener
 }
 
+func (self *Topic) remove(id int) (ret *Consumer) {
+	self.channels_lock.Lock()
+	for idx, consumer := range self.channels {
+		if consumer.id == id {
+			ret = consumer
+
+			copy(self.channels[idx:], self.channels[idx+1:])
+			self.channels = self.channels[:len(self.channels)-1]
+			break
+		}
+	}
+	self.channels_lock.Unlock()
+	return ret
+}
+
 func creatTopic(srv *Server, name string, capacity int) *Topic {
-	return &Topic{name: name, capacity: capacity, channels: list.New()}
+	return &Topic{name: name, capacity: capacity}
 }
