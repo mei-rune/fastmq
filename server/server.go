@@ -3,16 +3,21 @@ package server
 import (
 	"bytes"
 	"container/list"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 
 	mq "fastmq"
+
+	"github.com/julienschmidt/httprouter"
 )
 
 var ErrAlreadyClosed = errors.New("server is already closed.")
@@ -22,6 +27,7 @@ type Server struct {
 	is_stopped   int32
 	waitGroup    sync.WaitGroup
 	listener     net.Listener
+	bypass       *Listener
 	clients_lock sync.Mutex
 	clients      *list.List
 	queues_lock  sync.RWMutex
@@ -48,6 +54,79 @@ func (self *Server) Close() error {
 
 	self.waitGroup.Wait()
 	return err
+}
+
+func (self *Server) Wait() {
+	self.waitGroup.Wait()
+}
+
+func (self *Server) createListener() net.Listener {
+	if self.bypass == nil {
+		self.bypass = &Listener{
+			network: self.listener.Addr().Network(),
+			addr:    self.listener.Addr(),
+			closer:  nil,
+			c:       make(chan net.Conn, 100),
+		}
+	}
+	return self.bypass
+}
+
+func (self *Server) createHandler() http.Handler {
+	handler := self.options.Handler
+	if nil == handler {
+		handler = httprouter.New()
+		//self.options.Handler = handler
+	}
+
+	handler.NotFound = http.DefaultServeMux
+
+	handler.GET("/mq/queues", self.queuesIndex)
+	handler.GET("/mq/topics", self.topicsIndex)
+	handler.GET("/mq/clients", self.clientsIndex)
+	return handler
+}
+
+func (self *Server) queuesIndex(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	self.queues_lock.RLock()
+	defer self.queues_lock.RUnlock()
+	var results []string
+	for k, _ := range self.queues {
+		results = append(results, k)
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(results)
+}
+
+func (self *Server) topicsIndex(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	self.topics_lock.RLock()
+	defer self.topics_lock.RUnlock()
+	var results []string
+	for k, _ := range self.topics {
+		results = append(results, k)
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(results)
+}
+
+func (self *Server) clientsIndex(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	self.clients_lock.Lock()
+	defer self.clients_lock.Unlock()
+	var results []map[string]interface{}
+
+	for el := self.clients.Front(); el != nil; el = el.Next() {
+		if cli, ok := el.Value.(*Client); ok {
+			cli.mu.Lock()
+			results = append(results, map[string]interface{}{
+				"name":        cli.name,
+				"remote_addr": cli.remoteAddr,
+			})
+			cli.mu.Unlock()
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(results)
 }
 
 func (self *Server) log(args ...interface{}) {
@@ -115,7 +194,6 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 	remoteAddr := clientConn.RemoteAddr().String()
 
 	self.runItInGoroutine(func() {
-
 		////////////////////// begin check magic bytes  //////////////////////////
 		buf := make([]byte, len(mq.HEAD_MAGIC))
 		_, err := io.ReadFull(clientConn, buf)
@@ -126,9 +204,13 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 			return
 		}
 		if !bytes.Equal(buf, mq.HEAD_MAGIC) {
-			self.logf("ERROR: client(%s) bad protocol magic '%s'",
-				remoteAddr, string(buf))
-			clientConn.Close()
+			if nil != self.bypass {
+				self.bypass.c <- wrap(buf, clientConn)
+			} else {
+				self.logf("ERROR: client(%s) bad protocol magic '%s'",
+					remoteAddr, string(buf))
+				clientConn.Close()
+			}
 			return
 		}
 		if err := mq.SendFull(clientConn, mq.HEAD_MAGIC); err != nil {
@@ -226,6 +308,18 @@ func NewServer(opts *Options) (*Server, error) {
 		clients:  list.New(),
 		queues:   map[string]*Queue{},
 		topics:   map[string]*Topic{},
+	}
+
+	if opts.HttpEnabled {
+		bypass := srv.createListener()
+		srv.runItInGoroutine(func() {
+			if err := http.Serve(bypass,
+				srv.createHandler()); err != nil {
+				srv.log("[http]", err)
+
+				srv.Close()
+			}
+		})
 	}
 
 	srv.runItInGoroutine(func() {

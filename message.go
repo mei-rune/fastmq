@@ -35,6 +35,7 @@ var (
 )
 
 const (
+	MSG_ID    = 'i'
 	MSG_ERROR = 'e'
 	MSG_DATA  = 'd'
 	MSG_PUB   = 'p'
@@ -46,6 +47,8 @@ const (
 
 func ToCommandName(cmd byte) string {
 	switch cmd {
+	case MSG_ID:
+		return "MSG_ID"
 	case MSG_ERROR:
 		return "MSG_ERROR"
 	case MSG_DATA:

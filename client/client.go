@@ -79,6 +79,12 @@ func (self *Client) recvAck() error {
 	return mq.ErrMoreThanMaxRead
 }
 
+func (self *Client) Id(name string) error {
+	msg := mq.NewMessageWriter(mq.MSG_ID, len(name)+mq.HEAD_LENGTH+8)
+	msg.Append([]byte(name)).Append([]byte("\n"))
+	return self.Send(msg.Build())
+}
+
 func (self *Client) Send(msg mq.Message) error {
 	return mq.SendFull(self.conn, msg.ToBytes())
 }

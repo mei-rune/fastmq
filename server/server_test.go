@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"net"
-	"net/http"
 	_ "net/http/pprof"
 	"testing"
 	"time"
@@ -14,7 +13,7 @@ import (
 )
 
 func TestServerPublishMessage(t *testing.T) {
-	go http.ListenAndServe(":", nil)
+	//go http.ListenAndServe(":", nil)
 	for _, s := range []string{"topic", "queue"} {
 		func() {
 			srv, err := NewServer(&Options{})

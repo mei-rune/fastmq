@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 )
 
 type Client struct {
+	mu         sync.Mutex
+	name       string
 	closed     int32
 	srv        *Server
 	remoteAddr string
@@ -135,6 +138,16 @@ type execCtx struct {
 func (ctx *execCtx) execute(msg mq.Message) bool {
 	switch msg.Command() {
 	case mq.MSG_NOOP:
+		return true
+	case mq.MSG_ID:
+		ctx.client.mu.Lock()
+		defer ctx.client.mu.Unlock()
+
+		if msg.DataLength() == 0 {
+			ctx.client.name = ""
+		} else {
+			ctx.client.name = string(msg.Data())
+		}
 		return true
 	case mq.MSG_ERROR:
 		ctx.srv.logf("ERROR: client(%s) recv error - %s", ctx.client.remoteAddr, string(msg.Data()))

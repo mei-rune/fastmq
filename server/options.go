@@ -7,24 +7,29 @@ import (
 	"log"
 	"os"
 	"time"
+
+	"github.com/julienschmidt/httprouter"
 )
 
 type Options struct {
 	// basic options
-	ID         int64  `flag:"worker-id" cfg:"id"`
-	Verbose    bool   `flag:"verbose"`
-	TCPAddress string `flag:"tcp-address"`
+	ID         int64
+	Verbose    bool
+	TCPAddress string
+
+	HttpEnabled bool
 
 	// msg and command options
 	MsgBufferSize    int
-	MsgTimeout       time.Duration `flag:"msg-timeout" arg:"1ms"`
+	MsgTimeout       time.Duration
 	MsgQueueCapacity int
+
+	Handler *httprouter.Router
 
 	Logger *log.Logger
 }
 
 func (self *Options) ensureDefault() {
-
 	if self.ID == 0 {
 		hostname, err := os.Hostname()
 		if err != nil {
