@@ -9,8 +9,6 @@ import (
 	mq "fastmq"
 )
 
-var ErrReadTooMuch = errors.New("read count is too much")
-
 type Client struct {
 	capacity int
 	conn     net.Conn
@@ -78,7 +76,7 @@ func (self *Client) recvAck() error {
 			return mq.ErrUnexceptedMessage
 		}
 	}
-	return ErrReadTooMuch
+	return mq.ErrMoreThanMaxRead
 }
 
 func (self *Client) Send(msg mq.Message) error {
