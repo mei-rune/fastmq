@@ -41,6 +41,9 @@ func (self *Server) Close() error {
 	if !atomic.CompareAndSwapInt32(&self.is_stopped, 0, 1) {
 		return ErrAlreadyClosed
 	}
+	if nil != self.bypass {
+		close(self.bypass.c)
+	}
 	err := self.listener.Close()
 	func() {
 		self.clients_lock.Lock()

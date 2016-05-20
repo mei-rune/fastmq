@@ -1,23 +1,34 @@
 package server
 
 import (
-	"bytes"
 	"io"
 	"net"
 )
 
 type wrapConn struct {
 	net.Conn
-	rd io.Reader
+	buf []byte
 }
 
 func (self *wrapConn) Read(b []byte) (int, error) {
-	return self.rd.Read(b)
+	if len(self.buf) == 0 {
+		return self.Conn.Read(b)
+	}
+
+	if len(self.buf) <= len(b) {
+		n := copy(b, self.buf)
+		self.buf = nil
+		return n, nil
+	} else {
+		n := copy(b, self.buf[:len(b)])
+		self.buf = self.buf[len(b):]
+		return n, nil
+	}
 }
 
 func wrap(buf []byte, conn net.Conn) net.Conn {
 	return &wrapConn{Conn: conn,
-		rd: io.MultiReader(bytes.NewReader(buf), conn)}
+		buf: buf}
 }
 
 type Listener struct {

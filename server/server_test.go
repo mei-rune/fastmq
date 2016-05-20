@@ -3,7 +3,9 @@ package server
 import (
 	"bytes"
 	"io"
+	"io/ioutil"
 	"net"
+	"net/http"
 	_ "net/http/pprof"
 	"testing"
 	"time"
@@ -93,5 +95,33 @@ func TestServerPublishMessage(t *testing.T) {
 				t.Error(err)
 			}
 		}()
+	}
+}
+
+func TestServerHttp(t *testing.T) {
+	srv, err := NewServer(&Options{HttpEnabled: true})
+	if nil != err {
+		t.Error(err)
+		return
+	}
+	defer srv.Close()
+
+	res, err := http.Get("http://127.0.0.1" + srv.options.TCPAddress + "/mq/clients")
+	if nil != err {
+		t.Error(err)
+		return
+	}
+
+	bs, _ := ioutil.ReadAll(res.Body)
+
+	if res.StatusCode != http.StatusOK {
+		t.Error("status code is", res.Status)
+		t.Error(string(bs))
+		return
+	}
+
+	if "null" != string(bytes.TrimSpace(bs)) {
+		t.Error("body is", string(bs))
+		return
 	}
 }
