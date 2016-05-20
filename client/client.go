@@ -219,3 +219,15 @@ func Subscribe(options *SubscribeOption, cb func(cli SubscribeClient, msg mq.Mes
 		return cli.SubscribeQueue(options.Name, cb)
 	}
 }
+
+func Connect(network, address string, capacity int) (*Client, error) {
+	if "" == address {
+		return nil, errors.New("address is empty.")
+	}
+	if "" == network {
+		network = "tcp"
+	}
+
+	cli := &Client{capacity: capacity}
+	return cli, cli.connect(network, address)
+}
