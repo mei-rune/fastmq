@@ -25,11 +25,12 @@ var (
 	MSG_ACK_BYTES   = []byte{MSG_ACK, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
 	MSG_CLOSE_BYTES = []byte{MSG_CLOSE, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
 
-	ErrUnexceptedAck  = errors.New("recv a unexcepted ack message.")
-	ErrEmptyString    = errors.New("empty error message.")
-	ErrMagicNumber    = errors.New("magic number is error.")
-	ErrLengthExceed   = errors.New("message length is exceed.")
-	ErrLengthNotDigit = errors.New("length field of message isn't number.")
+	ErrUnexceptedMessage = errors.New("recv a unexcepted message.")
+	ErrUnexceptedAck     = errors.New("recv a unexcepted ack message.")
+	ErrEmptyString       = errors.New("empty error message.")
+	ErrMagicNumber       = errors.New("magic number is error.")
+	ErrLengthExceed      = errors.New("message length is exceed.")
+	ErrLengthNotDigit    = errors.New("length field of message isn't number.")
 )
 
 const (

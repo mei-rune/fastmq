@@ -75,7 +75,7 @@ func (self *Client) recvAck() error {
 				return mq.ToError(recvMessage)
 			}
 
-			return errors.New("message isn't ack.")
+			return mq.ErrUnexceptedMessage
 		}
 	}
 	return ErrReadTooMuch
