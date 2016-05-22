@@ -3,7 +3,6 @@ package client
 import (
 	"errors"
 	"io"
-	"net"
 )
 
 // message format
@@ -25,6 +24,7 @@ var (
 	MSG_ACK_BYTES   = []byte{MSG_ACK, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
 	MSG_CLOSE_BYTES = []byte{MSG_CLOSE, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
 
+	ErrAlreadyClosed     = errors.New("already closed.")
 	ErrMoreThanMaxRead   = errors.New("more than maximum read.")
 	ErrUnexceptedMessage = errors.New("recv a unexcepted message.")
 	ErrUnexceptedAck     = errors.New("recv a unexcepted ack message.")
@@ -86,6 +86,14 @@ func (self Message) ToBytes() []byte {
 	return self
 }
 
+type errReader struct {
+	err error
+}
+
+func (self *errReader) Read(bs []byte) (int, error) {
+	return 0, self.err
+}
+
 type Reader struct {
 	conn   io.Reader
 	buffer []byte
@@ -93,6 +101,10 @@ type Reader struct {
 	end    int
 
 	buffer_size int
+}
+
+func (self *Reader) DataLength() int {
+	return self.end - self.start
 }
 
 func (self *Reader) Init(conn io.Reader, size int) {
@@ -191,7 +203,10 @@ func (self *Reader) ReadMessage() (Message, error) {
 
 	n, err := self.conn.Read(self.buffer[self.end:])
 	if err != nil {
-		return nil, err
+		if n <= 0 {
+			return nil, err
+		}
+		self.conn = &errReader{err: err}
 	}
 
 	self.end += n
@@ -308,7 +323,7 @@ func BuildErrorMessage(msg string) Message {
 	return builder.Build()
 }
 
-func SendFull(conn net.Conn, data []byte) error {
+func SendFull(conn io.Writer, data []byte) error {
 	for len(data) != 0 {
 		n, err := conn.Write(data)
 		if err != nil {

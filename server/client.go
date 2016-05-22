@@ -20,13 +20,20 @@ type Client struct {
 	conn       net.Conn
 }
 
+func (self *Client) id() string {
+	self.mu.Lock()
+	id := self.name
+	self.mu.Unlock()
+	return id
+}
+
 func (self *Client) Close() error {
 	if !atomic.CompareAndSwapInt32(&self.closed, 0, 1) {
 		return ErrAlreadyClosed
 	}
 
 	self.conn.Close()
-	self.srv.logf("TCP: client(%s) is closed.", self.remoteAddr)
+	self.srv.logf("TCP: client(%s) [%s] is closed.", self.remoteAddr, self.id())
 	return nil
 }
 
@@ -50,12 +57,14 @@ func (self *Client) runWrite(c chan interface{}) {
 			switch cmd := v.(type) {
 			case *errorCommand:
 				if err := mq.SendFull(conn, cmd.msg.ToBytes()); err != nil {
-					self.srv.logf("[client - %s] fail to send error message, %s", self.remoteAddr, err)
+					if 0 == atomic.LoadInt32(&self.closed) {
+						self.srv.logf("[%s - %s] fail to send error message, %s", self.id(), self.remoteAddr, err)
+					}
 				}
 				return
 			case *subCommand:
 				if err := mq.SendFull(conn, mq.MSG_ACK_BYTES); err != nil {
-					self.srv.logf("[client - %s] fail to send ack message, %s", self.remoteAddr, err)
+					self.srv.logf("[%s - %s] fail to send ack message, %s", self.id(), self.remoteAddr, err)
 					return
 				}
 
@@ -64,35 +73,35 @@ func (self *Client) runWrite(c chan interface{}) {
 				msg_ch = nil
 
 				if err := mq.SendFull(conn, mq.MSG_ACK_BYTES); err != nil {
-					self.srv.logf("[client - %s] fail to send ack message, %s", self.remoteAddr, err)
+					self.srv.logf("[%s - %s] fail to send ack message, %s", self.id(), self.remoteAddr, err)
 					return
 				}
 
 			case *closeCommand:
 				msg_ch = nil
 				if err := mq.SendFull(conn, mq.MSG_ACK_BYTES); err != nil {
-					self.srv.logf("[client - %s] fail to send ack message, %s", self.remoteAddr, err)
+					self.srv.logf("[%s - %s] fail to send ack message, %s", self.id(), self.remoteAddr, err)
 					return
 				}
 			default:
-				self.srv.logf("[client - %s] unknown command - %T", self.remoteAddr, v)
+				self.srv.logf("[%s - %s] unknown command - %T", self.id(), self.remoteAddr, v)
 				return
 			}
 		case data, ok := <-msg_ch:
 			if !ok {
 				msg := mq.BuildErrorMessage("message channel is closed.")
 				if err := mq.SendFull(conn, msg.ToBytes()); err != nil {
-					self.srv.logf("[client - %s] fail to send closed message, %s", self.remoteAddr, err)
+					self.srv.logf("[%s - %s] fail to send closed message, %s", self.id(), self.remoteAddr, err)
 				}
 				return
 			}
 			if err := mq.SendFull(conn, data.ToBytes()); err != nil {
-				self.srv.logf("[client - %s] fail to send data message, %s", self.remoteAddr, err)
+				self.srv.logf("[%s - %s] fail to send data message, %s", self.id(), self.remoteAddr, err)
 				return
 			}
 		case <-tick.C:
 			if err := mq.SendFull(conn, mq.MSG_NOOP_BYTES); err != nil {
-				self.srv.logf("[client - %s] fail to send noop message, %s", self.remoteAddr, err)
+				self.srv.logf("[%s - %s] fail to send noop message, %s", self.id(), self.remoteAddr, err)
 				return
 			}
 		}
@@ -125,6 +134,9 @@ func (self *Client) runRead(c chan interface{}) {
 			break
 		}
 	}
+
+	//fmt.Println(ctx.id)
+	//fmt.Println("DataLength=", reader.DataLength())
 }
 
 type execCtx struct {
@@ -133,6 +145,7 @@ type execCtx struct {
 	c        chan interface{}
 	producer Producer
 	consumer *Consumer
+	//id       uint32
 }
 
 func (ctx *execCtx) execute(msg mq.Message) bool {
@@ -148,13 +161,14 @@ func (ctx *execCtx) execute(msg mq.Message) bool {
 		if msg.DataLength() == 0 {
 			ctx.client.name = ""
 		} else {
-			ctx.client.name = string(msg.Data())
+			ctx.client.name = string(bytes.TrimSpace(msg.Data()))
 		}
 		return true
 	case mq.MSG_ERROR:
 		ctx.srv.logf("ERROR: client(%s) recv error - %s", ctx.client.remoteAddr, string(msg.Data()))
 		return false
 	case mq.MSG_CLOSE:
+		// fmt.Println("close ", ctx.id)
 		if err := ctx.Reset(); err != nil {
 			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("failed to reset context, " + err.Error())}
 			return true
@@ -163,6 +177,8 @@ func (ctx *execCtx) execute(msg mq.Message) bool {
 		ctx.c <- &closeCommand{}
 		return true
 	case mq.MSG_DATA:
+		//ctx.id = binary.BigEndian.Uint32(msg.Data())
+
 		if ctx.producer == nil {
 			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("state error.")}
 			return true
