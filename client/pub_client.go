@@ -16,33 +16,33 @@ var responsePool sync.Pool
 
 func init() {
 	responsePool.New = func() interface{} {
-		return &readResponse{}
+		return &SignelData{}
 	}
 }
 
-func newReadResponse(msg mq.Message,
-	err error) *readResponse {
-	res := responsePool.Get().(*readResponse)
-	res.msg = msg
-	res.err = err
+func NewSignelData(msg mq.Message,
+	err error) *SignelData {
+	res := responsePool.Get().(*SignelData)
+	res.Msg = msg
+	res.Err = err
 	return res
 }
 
-func releaseReadResponse(res *readResponse) {
-	res.msg = nil
-	res.err = nil
+func ReleaseSignelData(res *SignelData) {
+	res.Msg = nil
+	res.Err = nil
 	responsePool.Put(res)
 }
 
-type readResponse struct {
-	msg mq.Message
-	err error
+type SignelData struct {
+	Msg mq.Message
+	Err error
 }
 
 type PubClient struct {
 	is_closed int32
 	waitGroup sync.WaitGroup
-	read      chan *readResponse
+	Signal    chan *SignelData
 	C         chan mq.Message
 }
 
@@ -104,13 +104,13 @@ func (self *PubClient) exec(msg mq.Message) error {
 }
 
 func (self *PubClient) Read() (msg mq.Message, err error) {
-	res, ok := <-self.read
+	res, ok := <-self.Signal
 	if !ok {
 		return nil, mq.ErrAlreadyClosed
 	}
-	msg = res.msg
-	err = res.err
-	releaseReadResponse(res)
+	msg = res.Msg
+	err = res.Err
+	ReleaseSignelData(res)
 	return msg, err
 }
 
@@ -123,7 +123,7 @@ func (self *PubClient) runItInGoroutine(cb func()) {
 }
 
 func (self *PubClient) runRead(rd io.Reader, bufSize int) {
-	defer close(self.read)
+	defer close(self.Signal)
 
 	var reader mq.Reader
 	reader.Init(rd, bufSize)
@@ -131,14 +131,14 @@ func (self *PubClient) runRead(rd io.Reader, bufSize int) {
 	for {
 		msg, err := reader.ReadMessage()
 		if err != nil {
-			self.read <- newReadResponse(msg, err)
+			self.Signal <- NewSignelData(msg, err)
 			return
 		}
 		if msg.Command() == mq.MSG_NOOP {
 			continue
 		}
 
-		self.read <- newReadResponse(msg, err)
+		self.Signal <- NewSignelData(msg, err)
 	}
 }
 
@@ -166,8 +166,8 @@ func ConnectPub(network, address string, capacity, bufSize int) (*PubClient, err
 	}
 
 	v2 := &PubClient{
-		read: make(chan *readResponse, capacity),
-		C:    make(chan mq.Message, capacity),
+		Signal: make(chan *SignelData, capacity),
+		C:      make(chan mq.Message, capacity),
 	}
 
 	v2.runItInGoroutine(func() {
