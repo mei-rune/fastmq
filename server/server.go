@@ -16,8 +16,6 @@ import (
 	"sync/atomic"
 
 	mq "fastmq"
-
-	"github.com/julienschmidt/httprouter"
 )
 
 var ErrAlreadyClosed = errors.New("server is already closed.")
@@ -92,21 +90,38 @@ func (self *Server) createListener() net.Listener {
 }
 
 func (self *Server) createHandler() http.Handler {
-	handler := self.options.Handler
-	if nil == handler {
-		handler = httprouter.New()
-		//self.options.Handler = handler
-	}
-
-	handler.NotFound = http.DefaultServeMux
-
-	handler.GET("/mq/queues", self.queuesIndex)
-	handler.GET("/mq/topics", self.topicsIndex)
-	handler.GET("/mq/clients", self.clientsIndex)
-	return handler
+	return self
 }
 
-func (self *Server) queuesIndex(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+// 	handler := self.options.Handler
+// 	if nil == handler {
+// 		handler = httprouter.New()
+// 		//self.options.Handler = handler
+// 	}
+//
+// 	handler.NotFound = http.DefaultServeMux
+//
+// 	handler.GET("/mq/queues", self.queuesIndex)
+// 	handler.GET("/mq/topics", self.topicsIndex)
+// 	handler.GET("/mq/clients", self.clientsIndex)
+// 	return handler
+// }
+
+func (self *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/mq/queues") {
+		self.queuesIndex(w, r)
+	} else if strings.HasPrefix(r.URL.Path, "/mq/topics") {
+		self.topicsIndex(w, r)
+	} else if strings.HasPrefix(r.URL.Path, "/mq/clients") {
+		self.clientsIndex(w, r)
+	} else if self.options.Handler != nil {
+		self.options.Handler.ServeHTTP(w, r)
+	} else {
+		http.DefaultServeMux.ServeHTTP(w, r)
+	}
+}
+
+func (self *Server) queuesIndex(w http.ResponseWriter, r *http.Request) {
 	self.queues_lock.RLock()
 	defer self.queues_lock.RUnlock()
 	var results []string
@@ -117,7 +132,7 @@ func (self *Server) queuesIndex(w http.ResponseWriter, r *http.Request, ps httpr
 	json.NewEncoder(w).Encode(results)
 }
 
-func (self *Server) topicsIndex(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func (self *Server) topicsIndex(w http.ResponseWriter, r *http.Request) {
 	self.topics_lock.RLock()
 	defer self.topics_lock.RUnlock()
 	var results []string
@@ -128,7 +143,7 @@ func (self *Server) topicsIndex(w http.ResponseWriter, r *http.Request, ps httpr
 	json.NewEncoder(w).Encode(results)
 }
 
-func (self *Server) clientsIndex(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func (self *Server) clientsIndex(w http.ResponseWriter, r *http.Request) {
 	self.clients_lock.Lock()
 	defer self.clients_lock.Unlock()
 	var results []map[string]interface{}

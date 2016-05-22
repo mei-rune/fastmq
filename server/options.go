@@ -5,10 +5,9 @@ import (
 	"hash/crc32"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"time"
-
-	"github.com/julienschmidt/httprouter"
 )
 
 type Options struct {
@@ -24,7 +23,7 @@ type Options struct {
 	MsgTimeout       time.Duration
 	MsgQueueCapacity int
 
-	Handler *httprouter.Router
+	Handler http.Handler
 
 	Logger *log.Logger
 }
