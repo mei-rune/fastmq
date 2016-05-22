@@ -197,7 +197,7 @@ func (self *subscribeCmd) Run(args []string) {
 
 		if self.stat {
 			if bytes.Equal(msg.Data(), []byte("begin")) {
-				fmt.Println("recv:", message_count, ", elapsed:", time.Now().Sub(start_at))
+				//fmt.Println("recv:", message_count, ", elapsed:", time.Now().Sub(start_at))
 
 				start_at = time.Now()
 				message_count = 0
