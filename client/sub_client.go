@@ -6,7 +6,7 @@ import (
 	"log"
 	"net"
 
-	mq "fastmq"
+	mq "github.com/runner-mei/fastmq"
 )
 
 type SubClient struct {

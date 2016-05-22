@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -14,9 +15,8 @@ import (
 	"testing"
 	"time"
 
-	mq "fastmq"
-	mq_client "fastmq/client"
-	"fmt"
+	mq "github.com/runner-mei/fastmq"
+	mq_client "github.com/runner-mei/fastmq/client"
 )
 
 func TestServerPublishMessage(t *testing.T) {

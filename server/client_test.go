@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	mq "fastmq"
+	mq "github.com/runner-mei/fastmq"
 )
 
 func CreateTcp() (net.Conn, net.Conn) {

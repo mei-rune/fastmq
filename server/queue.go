@@ -1,9 +1,10 @@
 package server
 
 import (
-	mq "fastmq"
 	"sync"
 	"sync/atomic"
+
+	mq "github.com/runner-mei/fastmq"
 )
 
 type Consumer struct {

@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	mq "fastmq"
+	mq "github.com/runner-mei/fastmq"
 )
 
 type Client struct {

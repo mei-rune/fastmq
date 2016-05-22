@@ -9,7 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	mq "fastmq"
+	mq "github.com/runner-mei/fastmq"
 )
 
 var responsePool sync.Pool

@@ -15,7 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	mq "fastmq"
+	mq "github.com/runner-mei/fastmq"
 )
 
 var ErrAlreadyClosed = errors.New("server is already closed.")

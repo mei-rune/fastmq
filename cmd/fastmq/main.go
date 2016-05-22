@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	mq "fastmq"
-	mq_client "fastmq/client"
+	mq "github.com/runner-mei/fastmq"
+	mq_client "github.com/runner-mei/fastmq/client"
 
 	"github.com/runner-mei/command"
 )
