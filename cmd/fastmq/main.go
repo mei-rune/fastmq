@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fastmq/server"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +10,7 @@ import (
 
 	mq "github.com/runner-mei/fastmq"
 	mq_client "github.com/runner-mei/fastmq/client"
+	"github.com/runner-mei/fastmq/server"
 
 	"github.com/runner-mei/command"
 )
