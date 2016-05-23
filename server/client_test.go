@@ -72,9 +72,9 @@ func TestClientPublishMessage(t *testing.T) {
 
 			var channel Channel
 			if "topic" == s {
-				channel = srv.createTopicIfNotExists("a")
+				channel = srv.CreateTopicIfNotExists("a")
 			} else {
-				channel = srv.createQueueIfNotExists("a")
+				channel = srv.CreateQueueIfNotExists("a")
 			}
 			sub := channel.ListenOn()
 			defer sub.Close()
@@ -166,10 +166,10 @@ func TestClientSubscribeMessage(t *testing.T) {
 
 			var channel Channel
 			if "topic" == s {
-				channel = srv.createTopicIfNotExists("a")
+				channel = srv.CreateTopicIfNotExists("a")
 				time.Sleep(1 * time.Second) // wait for client is subscribed
 			} else {
-				channel = srv.createQueueIfNotExists("a")
+				channel = srv.CreateQueueIfNotExists("a")
 			}
 
 			pingMessage := mq.NewMessageWriter(mq.MSG_DATA, 10).Append([]byte("aa")).Build()

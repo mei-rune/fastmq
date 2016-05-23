@@ -198,9 +198,9 @@ func (ctx *execCtx) execute(msg mq.Message) bool {
 
 		var queue Channel
 		if bytes.Equal(ss[0], []byte("queue")) {
-			queue = ctx.srv.createQueueIfNotExists(string(ss[1]))
+			queue = ctx.srv.CreateQueueIfNotExists(string(ss[1]))
 		} else if bytes.Equal(ss[0], []byte("topic")) {
-			queue = ctx.srv.createTopicIfNotExists(string(ss[1]))
+			queue = ctx.srv.CreateTopicIfNotExists(string(ss[1]))
 		} else {
 			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
 			return true
@@ -217,9 +217,9 @@ func (ctx *execCtx) execute(msg mq.Message) bool {
 		}
 		var queue Channel
 		if bytes.Equal(ss[0], []byte("queue")) {
-			queue = ctx.srv.createQueueIfNotExists(string(ss[1]))
+			queue = ctx.srv.CreateQueueIfNotExists(string(ss[1]))
 		} else if bytes.Equal(ss[0], []byte("topic")) {
-			queue = ctx.srv.createTopicIfNotExists(string(ss[1]))
+			queue = ctx.srv.CreateTopicIfNotExists(string(ss[1]))
 		} else {
 			ctx.c <- &errorCommand{msg: mq.BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
 			return true

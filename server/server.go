@@ -286,7 +286,7 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 	})
 }
 
-func (self *Server) createQueueIfNotExists(name string) *Queue {
+func (self *Server) CreateQueueIfNotExists(name string) *Queue {
 	self.queues_lock.RLock()
 	queue, ok := self.queues[name]
 	self.queues_lock.RUnlock()
@@ -307,7 +307,7 @@ func (self *Server) createQueueIfNotExists(name string) *Queue {
 	return queue
 }
 
-func (self *Server) createTopicIfNotExists(name string) *Topic {
+func (self *Server) CreateTopicIfNotExists(name string) *Topic {
 	self.topics_lock.RLock()
 	topic, ok := self.topics[name]
 	self.topics_lock.RUnlock()
