@@ -349,8 +349,9 @@ func NewServer(opts *Options) (*Server, error) {
 		srv.runItInGoroutine(func() {
 			if err := http.Serve(bypass,
 				srv.createHandler()); err != nil {
-				srv.log("[http]", err)
-
+				if e, ok := err.(*net.OpError); !ok || e == nil || e.Err != io.EOF {
+					srv.log("[http]", err)
+				}
 				srv.Close()
 			}
 		})
