@@ -24,6 +24,7 @@ var (
 	MSG_ACK_BYTES   = []byte{MSG_ACK, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
 	MSG_CLOSE_BYTES = []byte{MSG_CLOSE, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
 
+	ErrTimeout           = errors.New("timeout")
 	ErrAlreadyClosed     = errors.New("already closed.")
 	ErrMoreThanMaxRead   = errors.New("more than maximum read.")
 	ErrUnexceptedMessage = errors.New("recv a unexcepted message.")

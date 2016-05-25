@@ -11,6 +11,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -132,6 +133,77 @@ func TestServerHttp(t *testing.T) {
 	}
 
 	if "null" != string(bytes.TrimSpace(bs)) {
+		t.Error("body is", string(bs))
+		return
+	}
+}
+
+func TestServerHttpQueuePush(t *testing.T) {
+	srv, err := NewServer(&Options{HttpEnabled: true})
+	if nil != err {
+		t.Error(err)
+		return
+	}
+	defer srv.Close()
+
+	res, err := http.Post("http://127.0.0.1"+srv.options.TCPAddress+"/mq/queue/aa", "text/plain", strings.NewReader("AAA"))
+	if nil != err {
+		t.Error(err)
+		return
+	}
+
+	bs, _ := ioutil.ReadAll(res.Body)
+
+	if res.StatusCode != http.StatusOK {
+		t.Error("status code is", res.Status)
+		t.Error(string(bs))
+		return
+	}
+
+	if "OK" != string(bytes.TrimSpace(bs)) {
+		t.Error("body is", string(bs))
+		return
+	}
+
+	q := srv.CreateQueueIfNotExists("aa")
+	select {
+	case msg := <-q.C:
+		if "AAA" != string(msg.Data()) {
+			t.Error("body is", string(bs))
+			return
+		}
+	default:
+		t.Error("msg isnot recv")
+	}
+}
+
+func TestServerHttpQueueGet(t *testing.T) {
+	srv, err := NewServer(&Options{HttpEnabled: true})
+	if nil != err {
+		t.Error(err)
+		return
+	}
+	defer srv.Close()
+
+	msg := mq.NewMessageWriter(mq.MSG_DATA, 8+3).Append([]byte("AAA")).Build()
+	srv.CreateQueueIfNotExists("aa").C <- msg
+
+	//fmt.Println(string(msg.Data()))
+	res, err := http.Get("http://127.0.0.1" + srv.options.TCPAddress + "/mq/queue/aa")
+	if nil != err {
+		t.Error(err)
+		return
+	}
+
+	bs, _ := ioutil.ReadAll(res.Body)
+
+	if res.StatusCode != http.StatusOK {
+		t.Error("status code is", res.Status)
+		t.Error(string(bs))
+		return
+	}
+
+	if "AAA" != string(bytes.TrimSpace(bs)) {
 		t.Error("body is", string(bs))
 		return
 	}

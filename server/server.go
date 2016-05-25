@@ -7,13 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	mq "github.com/runner-mei/fastmq"
 )
@@ -114,11 +117,106 @@ func (self *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		self.topicsIndex(w, r)
 	} else if strings.HasPrefix(r.URL.Path, "/mq/clients") {
 		self.clientsIndex(w, r)
+	} else if strings.HasPrefix(r.URL.Path, "/mq/queue/") {
+		self.doHandler(w, r, "/mq/queue/",
+			func(name string) *Consumer {
+				return self.CreateQueueIfNotExists(name).ListenOn()
+			},
+			func(name string) Producer {
+				return self.CreateQueueIfNotExists(name)
+			})
+	} else if strings.HasPrefix(r.URL.Path, "/mq/topic/") {
+		self.doHandler(w, r, "/mq/topic/",
+			func(name string) *Consumer {
+				return self.CreateTopicIfNotExists(name).ListenOn()
+			},
+			func(name string) Producer {
+				return self.CreateTopicIfNotExists(name)
+			})
 	} else if self.options.Handler != nil {
 		self.options.Handler.ServeHTTP(w, r)
 	} else {
 		http.DefaultServeMux.ServeHTTP(w, r)
 	}
+}
+
+func (self *Server) doHandler(w http.ResponseWriter, r *http.Request,
+	prefix string, recv_cb func(name string) *Consumer,
+	send_cb func(name string) Producer) {
+	url_path := strings.TrimPrefix(r.URL.Path, prefix)
+	url_path = strings.TrimSuffix(url_path, "/")
+	query_params := r.URL.Query()
+
+	if r.Method == "GET" {
+		timeout := GetTimeout(query_params, 1*time.Second)
+		timer := time.NewTimer(timeout)
+		consumer := recv_cb(url_path)
+		defer consumer.Close()
+
+		select {
+		case msg, ok := <-consumer.C:
+			timer.Stop()
+			if !ok {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte("queue is closed."))
+				return
+			}
+
+			w.Header().Add("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusOK)
+			// fmt.Println("===================", msg.DataLength(), mq.ToCommandName(msg.Command()))
+			if msg.DataLength() > 0 {
+				w.Write(msg.Data())
+			}
+		case <-timer.C:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	} else if r.Method == "PUT" || r.Method == "POST" {
+		bs, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		r.Body.Close()
+
+		timeout := GetTimeout(query_params, 0)
+		msg := mq.NewMessageWriter(mq.MSG_DATA, len(bs)+10).Append(bs).Build()
+		send := send_cb(url_path)
+		if timeout == 0 {
+			err = send.Send(msg)
+		} else {
+			err = send.SendTimeout(msg, timeout)
+		}
+		w.Header().Add("Content-Type", "text/plain")
+		if err != nil {
+			w.WriteHeader(http.StatusRequestTimeout)
+			w.Write([]byte(err.Error()))
+		} else {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		}
+	} else {
+		if nil != r.Body {
+			io.Copy(ioutil.Discard, r.Body)
+			r.Body.Close()
+		}
+
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte("Method must is PUT or GET."))
+	}
+}
+
+func GetTimeout(query_params url.Values, value time.Duration) time.Duration {
+	s := query_params.Get("timeout")
+	if "" == s {
+		return value
+	}
+	t, e := time.ParseDuration(s)
+	if nil != e {
+		return value
+	}
+	return t
 }
 
 func (self *Server) queuesIndex(w http.ResponseWriter, r *http.Request) {

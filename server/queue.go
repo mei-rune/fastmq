@@ -3,6 +3,7 @@ package server
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	mq "github.com/runner-mei/fastmq"
 )
@@ -28,12 +29,14 @@ func (self *Consumer) Close() error {
 		return nil
 	}
 	self.topic.remove(self.id)
+	close(self.C)
 	self.topic = nil
 	return nil
 }
 
 type Producer interface {
 	Send(msg mq.Message) error
+	SendTimeout(msg mq.Message, timeout time.Duration) error
 }
 
 type Channel interface {
@@ -43,8 +46,9 @@ type Channel interface {
 }
 
 type Queue struct {
-	name string
-	C    chan mq.Message
+	name     string
+	C        chan mq.Message
+	consumer Consumer
 }
 
 func (self *Queue) Close() error {
@@ -59,12 +63,24 @@ func (self *Queue) Send(msg mq.Message) error {
 	return nil
 }
 
+func (self *Queue) SendTimeout(msg mq.Message, timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	select {
+	case self.C <- msg:
+		timer.Stop()
+		return nil
+	case <-timer.C:
+		return mq.ErrTimeout
+	}
+}
+
 func (self *Queue) ListenOn() *Consumer {
-	return &Consumer{C: self.C}
+	return &self.consumer
 }
 
 func creatQueue(srv *Server, name string, capacity int) *Queue {
-	return &Queue{name: name, C: make(chan mq.Message, capacity)}
+	c := make(chan mq.Message, capacity)
+	return &Queue{name: name, C: c, consumer: Consumer{C: c}}
 }
 
 type Topic struct {
@@ -102,6 +118,10 @@ func (self *Topic) Send(msg mq.Message) error {
 		}
 	}
 	return nil
+}
+
+func (self *Topic) SendTimeout(msg mq.Message, timeout time.Duration) error {
+	return self.Send(msg)
 }
 
 func (self *Topic) ListenOn() *Consumer {

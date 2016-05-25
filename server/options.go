@@ -55,6 +55,10 @@ func (self *Options) ensureDefault() {
 		self.MsgQueueCapacity = 200
 	}
 
+	if self.Handler != nil {
+		self.HttpEnabled = true
+	}
+
 	if self.Logger == nil {
 		self.Logger = log.New(os.Stderr, "[aa] ", log.Ldate|log.Ltime|log.Lmicroseconds)
 	}
