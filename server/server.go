@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	mq "github.com/runner-mei/fastmq"
+	mq_client "github.com/runner-mei/fastmq/client"
 )
 
 var ErrAlreadyClosed = errors.New("server is already closed.")
@@ -164,7 +164,7 @@ func (self *Server) doHandler(w http.ResponseWriter, r *http.Request,
 
 			w.Header().Add("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusOK)
-			// fmt.Println("===================", msg.DataLength(), mq.ToCommandName(msg.Command()))
+			// fmt.Println("===================", msg.DataLength(), mq_client.ToCommandName(msg.Command()))
 			if msg.DataLength() > 0 {
 				w.Write(msg.Data())
 			}
@@ -181,13 +181,14 @@ func (self *Server) doHandler(w http.ResponseWriter, r *http.Request,
 		r.Body.Close()
 
 		timeout := GetTimeout(query_params, 0)
-		msg := mq.NewMessageWriter(mq.MSG_DATA, len(bs)+10).Append(bs).Build()
+		msg := mq_client.NewMessageWriter(mq_client.MSG_DATA, len(bs)+10).Append(bs).Build()
 		send := send_cb(url_path)
 		if timeout == 0 {
 			err = send.Send(msg)
 		} else {
 			err = send.SendTimeout(msg, timeout)
 		}
+		// fmt.Println("===================", msg.DataLength(), mq_client.ToCommandName(msg.Command()), err, timeout, url_path)
 		w.Header().Add("Content-Type", "text/plain")
 		if err != nil {
 			w.WriteHeader(http.StatusRequestTimeout)
@@ -300,6 +301,8 @@ func (self *Server) runItInGoroutine(cb func()) {
 func (self *Server) runLoop(listener net.Listener) {
 	self.logf("TCP: listening on %s", listener.Addr())
 
+	defer listener.Close()
+
 	for 0 == atomic.LoadInt32(&self.is_stopped) {
 		clientConn, err := listener.Accept()
 		if err != nil {
@@ -327,7 +330,7 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 
 	self.runItInGoroutine(func() {
 		////////////////////// begin check magic bytes  //////////////////////////
-		buf := make([]byte, len(mq.HEAD_MAGIC))
+		buf := make([]byte, len(mq_client.HEAD_MAGIC))
 		_, err := io.ReadFull(clientConn, buf)
 		if err != nil {
 			self.logf("ERROR: client(%s) failed to read protocol version - %s",
@@ -335,7 +338,7 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 			clientConn.Close()
 			return
 		}
-		if !bytes.Equal(buf, mq.HEAD_MAGIC) {
+		if !bytes.Equal(buf, mq_client.HEAD_MAGIC) {
 			if nil != self.bypass {
 				self.bypass.c <- wrap(buf, clientConn)
 			} else {
@@ -345,7 +348,7 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 			}
 			return
 		}
-		if err := mq.SendFull(clientConn, mq.HEAD_MAGIC); err != nil {
+		if err := mq_client.SendFull(clientConn, mq_client.HEAD_MAGIC); err != nil {
 			self.logf("ERROR: client(%s) fail to send magic bytes, %s", remoteAddr, err)
 			return
 		}
@@ -399,6 +402,7 @@ func (self *Server) CreateQueueIfNotExists(name string) *Queue {
 		self.queues_lock.Unlock()
 		return queue
 	}
+
 	queue = creatQueue(self, name, self.options.MsgQueueCapacity)
 	self.queues[name] = queue
 	self.queues_lock.Unlock()

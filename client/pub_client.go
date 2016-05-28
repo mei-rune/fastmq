@@ -1,15 +1,12 @@
 package client
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"log"
 	"net"
 	"sync"
 	"sync/atomic"
-
-	mq "github.com/runner-mei/fastmq"
 )
 
 var responsePool sync.Pool
@@ -20,7 +17,7 @@ func init() {
 	}
 }
 
-func NewSignelData(msg mq.Message,
+func NewSignelData(msg Message,
 	err error) *SignelData {
 	res := responsePool.Get().(*SignelData)
 	res.Msg = msg
@@ -35,7 +32,7 @@ func ReleaseSignelData(res *SignelData) {
 }
 
 type SignelData struct {
-	Msg mq.Message
+	Msg Message
 	Err error
 }
 
@@ -43,12 +40,12 @@ type PubClient struct {
 	is_closed int32
 	waitGroup sync.WaitGroup
 	Signal    chan *SignelData
-	C         chan mq.Message
+	C         chan Message
 }
 
 func (self *PubClient) Close() error {
 	if !atomic.CompareAndSwapInt32(&self.is_closed, 0, 1) {
-		return mq.ErrAlreadyClosed
+		return ErrAlreadyClosed
 	}
 
 	close(self.C)
@@ -56,57 +53,19 @@ func (self *PubClient) Close() error {
 	return nil
 }
 
-func (self *PubClient) Id(name string) error {
-	msg := mq.NewMessageWriter(mq.MSG_ID, len(name)+mq.HEAD_LENGTH+8)
-	msg.Append([]byte(name)).Append([]byte("\n"))
-	self.C <- msg.Build()
+func (self *PubClient) Stop() error {
+	self.Send(Message(MSG_CLOSE_BYTES))
 	return nil
 }
 
-func (self *PubClient) Stop() error {
-	return self.exec(mq.Message(mq.MSG_CLOSE_BYTES))
-}
-
-func (self *PubClient) Send(msg mq.Message) {
+func (self *PubClient) Send(msg Message) {
 	self.C <- msg
 }
 
-func (self *PubClient) ToQueue(name string) error {
-	msg := mq.NewMessageWriter(mq.MSG_PUB, len(name)+mq.HEAD_LENGTH+8)
-	msg.Append([]byte("queue "))
-	msg.Append([]byte(name)).Append([]byte("\n"))
-	return self.exec(msg.Build())
-}
-
-func (self *PubClient) ToTopic(name string) error {
-	msg := mq.NewMessageWriter(mq.MSG_PUB, len(name)+mq.HEAD_LENGTH+8)
-	msg.Append([]byte("topic "))
-	msg.Append([]byte(name)).Append([]byte("\n"))
-	return self.exec(msg.Build())
-}
-
-func (self *PubClient) exec(msg mq.Message) error {
-	self.C <- msg
-	recvMsg, err := self.Read()
-	if err != nil {
-		return err
-	}
-
-	if mq.MSG_ACK == recvMsg.Command() {
-		return nil
-	}
-
-	if mq.MSG_ERROR == recvMsg.Command() {
-		return mq.ToError(recvMsg)
-	}
-
-	return errors.New("recv a unexcepted message, exepted is a ack message, actual is " + mq.ToCommandName(recvMsg.Command()))
-}
-
-func (self *PubClient) Read() (msg mq.Message, err error) {
+func (self *PubClient) Read() (msg Message, err error) {
 	res, ok := <-self.Signal
 	if !ok {
-		return nil, mq.ErrAlreadyClosed
+		return nil, ErrAlreadyClosed
 	}
 	msg = res.Msg
 	err = res.Err
@@ -125,7 +84,7 @@ func (self *PubClient) runItInGoroutine(cb func()) {
 func (self *PubClient) runRead(rd io.Reader, bufSize int) {
 	defer close(self.Signal)
 
-	var reader mq.Reader
+	var reader Reader
 	reader.Init(rd, bufSize)
 
 	for {
@@ -134,7 +93,7 @@ func (self *PubClient) runRead(rd io.Reader, bufSize int) {
 			self.Signal <- NewSignelData(msg, err)
 			return
 		}
-		if msg.Command() == mq.MSG_NOOP {
+		if msg.Command() == MSG_NOOP {
 			continue
 		}
 
@@ -144,34 +103,88 @@ func (self *PubClient) runRead(rd io.Reader, bufSize int) {
 
 func (self *PubClient) runWrite(writer io.Writer) {
 	for msg := range self.C {
-		err := mq.SendFull(writer, msg.ToBytes())
+		err := SendFull(writer, msg.ToBytes())
 		if err != nil {
 			log.Println("failed to send message,", err)
+			err_msg := NewMessageWriter(MSG_ERROR, len(err.Error())).Append([]byte(err.Error())).Build()
+			select {
+			case self.Signal <- NewSignelData(err_msg, err):
+			default:
+			}
 			return
 		}
 	}
 }
 
-func ConnectPub(network, address string, capacity, bufSize int) (*PubClient, error) {
-	if "" == address {
-		return nil, errors.New("address is empty.")
-	}
-	if "" == network {
-		network = "tcp"
-	}
+type ClientBuilder struct {
+	network, address string
+	capacity         int
+	bufSize          int
+	id               string
+	signal           chan *SignelData
+	c                chan Message
+}
 
-	conn, err := connect(network, address)
+func (self *ClientBuilder) Id(name string) *ClientBuilder {
+	self.id = name
+	return self
+}
+
+func (self *ClientBuilder) ToQueue(name string) (*PubClient, error) {
+	msg := NewMessageWriter(MSG_PUB, len(name)+HEAD_LENGTH+8).
+		Append([]byte("queue ")).
+		Append([]byte(name)).
+		Append([]byte("\n")).Build()
+	return self.to(msg)
+}
+
+func (self *ClientBuilder) ToTopic(name string) (*PubClient, error) {
+	msg := NewMessageWriter(MSG_PUB, len(name)+HEAD_LENGTH+8).
+		Append([]byte("topic ")).
+		Append([]byte(name)).
+		Append([]byte("\n")).Build()
+	return self.to(msg)
+}
+
+func (self *ClientBuilder) to(msg Message) (*PubClient, error) {
+	conn, err := connect(self.network, self.address)
 	if err != nil {
 		return nil, err
 	}
 
+	if self.id != "" {
+		sendId(conn, self.id)
+	}
+
+	var head_buffer [8]byte
+	err = exec(conn, msg, head_buffer)
+	if err != nil {
+		return nil, err
+	}
+
+	if self.capacity == 0 {
+		self.capacity = 200
+	}
+
+	if self.bufSize == 0 {
+		self.bufSize = 512
+	}
+
+	if self.signal == nil {
+		self.signal = make(chan *SignelData, self.capacity)
+	}
+
+	if self.c == nil {
+		self.c = make(chan Message, self.capacity)
+	}
+
 	v2 := &PubClient{
-		Signal: make(chan *SignelData, capacity),
-		C:      make(chan mq.Message, capacity),
+		Signal: self.signal, //make(chan *SignelData, capacity),
+		C:      self.c,      //make(chan Message, capacity),
 	}
 
 	v2.runItInGoroutine(func() {
-		v2.runRead(conn, bufSize)
+		v2.runRead(conn, self.bufSize)
 		conn.Close()
 	})
 
@@ -183,28 +196,53 @@ func ConnectPub(network, address string, capacity, bufSize int) (*PubClient, err
 	return v2, nil
 }
 
-func sendMagic(conn net.Conn) error {
-	return mq.SendFull(conn, mq.HEAD_MAGIC)
-}
-
-func recvMagic(conn net.Conn) error {
-	var buf [4]byte
-	if _, err := io.ReadFull(conn, buf[:]); err != nil {
-		return err
-	}
-	if !bytes.Equal(buf[:], mq.HEAD_MAGIC) {
-		return mq.ErrMagicNumber
-	}
-	return nil
-}
-
 func connect(network, address string) (net.Conn, error) {
+	if "" == network {
+		network = "tcp"
+	}
+	if "" == address {
+		return nil, errors.New("address is missing.")
+	}
 	conn, err := net.Dial(network, address)
 	if err != nil {
 		return nil, err
 	}
-	if err := sendMagic(conn); err != nil {
+	if err := SendMagic(conn); err != nil {
 		return nil, err
 	}
-	return conn, recvMagic(conn)
+	return conn, ReadMagic(conn)
+}
+
+func sendId(conn net.Conn, name string) error {
+	msg := NewMessageWriter(MSG_ID, len(name)+HEAD_LENGTH+8).
+		Append([]byte(name)).
+		Append([]byte("\n")).
+		Build()
+	return SendFull(conn, msg.ToBytes())
+}
+
+func exec(conn net.Conn, msg Message, head_buf [8]byte) error {
+	err := SendFull(conn, msg.ToBytes())
+	if err != nil {
+		return err
+	}
+	recvMsg, err := ReadMessage(conn, head_buf)
+	if err != nil {
+		return err
+	}
+
+	if MSG_ACK == recvMsg.Command() {
+		return nil
+	}
+
+	if MSG_ERROR == recvMsg.Command() {
+		return ToError(recvMsg)
+	}
+
+	return errors.New("recv a unexcepted message, exepted is a ack message, actual is " +
+		ToCommandName(recvMsg.Command()))
+}
+
+func Connect(network, address string) *ClientBuilder {
+	return &ClientBuilder{network: network, address: address}
 }

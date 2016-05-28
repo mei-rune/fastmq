@@ -5,13 +5,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	mq "github.com/runner-mei/fastmq"
+	mq_client "github.com/runner-mei/fastmq/client"
 )
 
 type Consumer struct {
 	topic        *Topic
 	id           int
-	C            chan mq.Message
+	C            chan mq_client.Message
 	DiscardCount uint32
 	Count        uint32
 }
@@ -35,8 +35,8 @@ func (self *Consumer) Close() error {
 }
 
 type Producer interface {
-	Send(msg mq.Message) error
-	SendTimeout(msg mq.Message, timeout time.Duration) error
+	Send(msg mq_client.Message) error
+	SendTimeout(msg mq_client.Message, timeout time.Duration) error
 }
 
 type Channel interface {
@@ -47,7 +47,7 @@ type Channel interface {
 
 type Queue struct {
 	name     string
-	C        chan mq.Message
+	C        chan mq_client.Message
 	consumer Consumer
 }
 
@@ -58,19 +58,19 @@ func (self *Queue) Close() error {
 	return nil
 }
 
-func (self *Queue) Send(msg mq.Message) error {
+func (self *Queue) Send(msg mq_client.Message) error {
 	self.C <- msg
 	return nil
 }
 
-func (self *Queue) SendTimeout(msg mq.Message, timeout time.Duration) error {
+func (self *Queue) SendTimeout(msg mq_client.Message, timeout time.Duration) error {
 	timer := time.NewTimer(timeout)
 	select {
 	case self.C <- msg:
 		timer.Stop()
 		return nil
 	case <-timer.C:
-		return mq.ErrTimeout
+		return mq_client.ErrTimeout
 	}
 }
 
@@ -79,7 +79,7 @@ func (self *Queue) ListenOn() *Consumer {
 }
 
 func creatQueue(srv *Server, name string, capacity int) *Queue {
-	c := make(chan mq.Message, capacity)
+	c := make(chan mq_client.Message, capacity)
 	return &Queue{name: name, C: c, consumer: Consumer{C: c}}
 }
 
@@ -105,7 +105,7 @@ func (self *Topic) Close() error {
 	return nil
 }
 
-func (self *Topic) Send(msg mq.Message) error {
+func (self *Topic) Send(msg mq_client.Message) error {
 	self.channels_lock.RLock()
 	defer self.channels_lock.RUnlock()
 
@@ -120,12 +120,12 @@ func (self *Topic) Send(msg mq.Message) error {
 	return nil
 }
 
-func (self *Topic) SendTimeout(msg mq.Message, timeout time.Duration) error {
+func (self *Topic) SendTimeout(msg mq_client.Message, timeout time.Duration) error {
 	return self.Send(msg)
 }
 
 func (self *Topic) ListenOn() *Consumer {
-	listener := &Consumer{topic: self, C: make(chan mq.Message, self.capacity)}
+	listener := &Consumer{topic: self, C: make(chan mq_client.Message, self.capacity)}
 
 	self.channels_lock.Lock()
 	self.last_id++

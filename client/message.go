@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"errors"
 	"io"
 )
@@ -343,4 +344,52 @@ func ToError(msg Message) error {
 		return ErrEmptyString
 	}
 	return errors.New(string(msg.Data()))
+}
+
+type FixedReader struct {
+	conn   io.Reader
+	buffer [HEAD_LENGTH]byte
+}
+
+func (self *FixedReader) Init(conn io.Reader) {
+	self.conn = conn
+}
+
+func (self *FixedReader) ReadMessage() (Message, error) {
+	return ReadMessage(self.conn, self.buffer)
+}
+
+func ReadMessage(rd io.Reader, head_buf [8]byte) (Message, error) {
+	_, err := io.ReadFull(rd, head_buf[:])
+	if err != nil {
+		return nil, err
+	}
+
+	msg_data_length, err := readLength(head_buf[2:])
+	if err != nil {
+		return nil, err
+	}
+
+	msg_bytes := MakeBytes(HEAD_LENGTH + msg_data_length)
+	_, err = io.ReadFull(rd, msg_bytes[HEAD_LENGTH:])
+	if err != nil {
+		return nil, err
+	}
+	copy(msg_bytes, head_buf[:])
+	return msg_bytes, nil
+}
+
+func SendMagic(w io.Writer) error {
+	return SendFull(w, HEAD_MAGIC)
+}
+
+func ReadMagic(r io.Reader) error {
+	var buf [4]byte
+	if _, err := io.ReadFull(r, buf[:]); err != nil {
+		return err
+	}
+	if !bytes.Equal(buf[:], HEAD_MAGIC) {
+		return ErrMagicNumber
+	}
+	return nil
 }

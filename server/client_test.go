@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	mq "github.com/runner-mei/fastmq"
+	mq_client "github.com/runner-mei/fastmq/client"
 )
 
 func CreateTcp() (net.Conn, net.Conn) {
@@ -79,13 +79,13 @@ func TestClientPublishMessage(t *testing.T) {
 			sub := channel.ListenOn()
 			defer sub.Close()
 
-			_, err = conn2.Write(mq.NewMessageWriter(mq.MSG_PUB, 10).Append([]byte(s + " a")).Build().ToBytes())
+			_, err = conn2.Write(mq_client.NewMessageWriter(mq_client.MSG_PUB, 10).Append([]byte(s + " a")).Build().ToBytes())
 			if nil != err {
 				t.Error(err)
 				return
 			}
 
-			pingBytes := mq.NewMessageWriter(mq.MSG_DATA, 10).Append([]byte("aa")).Build().ToBytes()
+			pingBytes := mq_client.NewMessageWriter(mq_client.MSG_DATA, 10).Append([]byte("aa")).Build().ToBytes()
 			for i := 0; i < 100; i++ {
 				_, err = conn2.Write(pingBytes)
 				if nil != err {
@@ -111,11 +111,11 @@ func TestClientPublishMessage(t *testing.T) {
 }
 
 func readAck(conn net.Conn) error {
-	var buf = make([]byte, len(mq.MSG_ACK_BYTES))
+	var buf = make([]byte, len(mq_client.MSG_ACK_BYTES))
 	if _, err := io.ReadFull(conn, buf); nil != err {
 		return err
 	}
-	if !bytes.Equal(buf, mq.MSG_ACK_BYTES) {
+	if !bytes.Equal(buf, mq_client.MSG_ACK_BYTES) {
 		return errors.New("ack is error - " + string(buf))
 	}
 	return nil
@@ -158,7 +158,7 @@ func TestClientSubscribeMessage(t *testing.T) {
 			// sub := channel.ListenOn()
 			// defer sub.Close()
 
-			_, err = conn2.Write(mq.NewMessageWriter(mq.MSG_SUB, 10).Append([]byte(s + " a")).Build().ToBytes())
+			_, err = conn2.Write(mq_client.NewMessageWriter(mq_client.MSG_SUB, 10).Append([]byte(s + " a")).Build().ToBytes())
 			if nil != err {
 				t.Error(err)
 				return
@@ -172,7 +172,7 @@ func TestClientSubscribeMessage(t *testing.T) {
 				channel = srv.CreateQueueIfNotExists("a")
 			}
 
-			pingMessage := mq.NewMessageWriter(mq.MSG_DATA, 10).Append([]byte("aa")).Build()
+			pingMessage := mq_client.NewMessageWriter(mq_client.MSG_DATA, 10).Append([]byte("aa")).Build()
 			go func() {
 				for i := 0; i < 100; i++ {
 					channel.Send(pingMessage)
@@ -184,9 +184,9 @@ func TestClientSubscribeMessage(t *testing.T) {
 				return
 			}
 
-			rd := mq.NewMessageReader(conn2, 100)
+			rd := mq_client.NewMessageReader(conn2, 100)
 			for i := 0; i < 100; i++ {
-				var recvMessage mq.Message
+				var recvMessage mq_client.Message
 				var err error
 				for {
 					recvMessage, err = rd.ReadMessage()
@@ -201,7 +201,7 @@ func TestClientSubscribeMessage(t *testing.T) {
 
 				if !bytes.Equal(pingMessage.ToBytes(), recvMessage.ToBytes()) {
 					t.Log("excepted is", pingMessage.ToBytes())
-					t.Error("actual is", recvMessage, mq.ToCommandName(recvMessage[0]))
+					t.Error("actual is", recvMessage, mq_client.ToCommandName(recvMessage[0]))
 				}
 			}
 		}()

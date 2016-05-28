@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	mq "github.com/runner-mei/fastmq"
 	mq_client "github.com/runner-mei/fastmq/client"
 )
 
@@ -31,7 +30,7 @@ func TestServerPublishMessage(t *testing.T) {
 			}
 			defer srv.Close()
 
-			pingMessage := mq.NewMessageWriter(mq.MSG_DATA, 10).Append([]byte("aa")).Build()
+			pingMessage := mq_client.NewMessageWriter(mq_client.MSG_DATA, 10).Append([]byte("aa")).Build()
 			go func() {
 				if "topic" == s {
 					time.Sleep(1 * time.Second)
@@ -41,23 +40,23 @@ func TestServerPublishMessage(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				if err := mq.SendFull(conn, mq.HEAD_MAGIC); err != nil {
+				if err := mq_client.SendFull(conn, mq_client.HEAD_MAGIC); err != nil {
 					t.Error(err)
 					return
 				}
 
-				var buf = make([]byte, len(mq.HEAD_MAGIC))
+				var buf = make([]byte, len(mq_client.HEAD_MAGIC))
 				if _, err := io.ReadFull(conn, buf); err != nil {
 					t.Error(err)
 					return
 				}
 
-				if !bytes.Equal(buf, mq.HEAD_MAGIC) {
+				if !bytes.Equal(buf, mq_client.HEAD_MAGIC) {
 					t.Error("magic is error - ", buf)
 					return
 				}
 
-				_, err = conn.Write(mq.NewMessageWriter(mq.MSG_PUB, 10).Append([]byte(s + " a")).Build().ToBytes())
+				_, err = conn.Write(mq_client.NewMessageWriter(mq_client.MSG_PUB, 10).Append([]byte(s + " a")).Build().ToBytes())
 				if nil != err {
 					t.Error(err)
 					return
@@ -84,10 +83,14 @@ func TestServerPublishMessage(t *testing.T) {
 			}
 
 			msg_count := 0
-			cb := func(cli *mq_client.Subscription, recvMessage mq.Message) {
+			cb := func(cli *mq_client.Subscription, recvMessage mq_client.Message) {
 				if !bytes.Equal(pingMessage.ToBytes(), recvMessage.ToBytes()) {
-					t.Log("excepted is", pingMessage.ToBytes())
-					t.Error("actual is", recvMessage, mq.ToCommandName(recvMessage[0]))
+					if recvMessage.Command() == mq_client.MSG_ERROR {
+						t.Error("actual is", mq_client.ToError(recvMessage))
+					} else {
+						t.Log("excepted is", pingMessage.ToBytes())
+						t.Error("actual is", recvMessage, mq_client.ToCommandName(recvMessage[0]))
+					}
 				}
 
 				msg_count++
@@ -117,6 +120,7 @@ func TestServerHttp(t *testing.T) {
 		return
 	}
 	defer srv.Close()
+	defer http.DefaultTransport.(*http.Transport).CloseIdleConnections()
 
 	res, err := http.Get("http://127.0.0.1" + srv.options.TCPAddress + "/mq/clients")
 	if nil != err {
@@ -145,6 +149,7 @@ func TestServerHttpQueuePush(t *testing.T) {
 		return
 	}
 	defer srv.Close()
+	defer http.DefaultTransport.(*http.Transport).CloseIdleConnections()
 
 	res, err := http.Post("http://127.0.0.1"+srv.options.TCPAddress+"/mq/queue/aa", "text/plain", strings.NewReader("AAA"))
 	if nil != err {
@@ -166,6 +171,8 @@ func TestServerHttpQueuePush(t *testing.T) {
 	}
 
 	q := srv.CreateQueueIfNotExists("aa")
+	//fmt.Println(len(q.C))
+	//fmt.Println(len(q.consumer.C))
 	select {
 	case msg := <-q.C:
 		if "AAA" != string(msg.Data()) {
@@ -173,6 +180,8 @@ func TestServerHttpQueuePush(t *testing.T) {
 			return
 		}
 	default:
+		//fmt.Println("===========")
+		//case <-time.After(10 * time.Second):
 		t.Error("msg isnot recv")
 	}
 }
@@ -184,8 +193,9 @@ func TestServerHttpQueueGet(t *testing.T) {
 		return
 	}
 	defer srv.Close()
+	defer http.DefaultTransport.(*http.Transport).CloseIdleConnections()
 
-	msg := mq.NewMessageWriter(mq.MSG_DATA, 8+3).Append([]byte("AAA")).Build()
+	msg := mq_client.NewMessageWriter(mq_client.MSG_DATA, 8+3).Append([]byte("AAA")).Build()
 	srv.CreateQueueIfNotExists("aa").C <- msg
 
 	//fmt.Println(string(msg.Data()))
@@ -214,7 +224,7 @@ const message_total = 100000
 var sleep = flag.Duration("test.sleep", 0, "")
 
 func TestBenchmarkMqServer(t *testing.T) {
-	go http.ListenAndServe(":", nil)
+	//go http.ListenAndServe(":", nil)
 
 	srv, err := NewServer(&Options{HttpEnabled: true})
 	if nil != err {
@@ -222,6 +232,7 @@ func TestBenchmarkMqServer(t *testing.T) {
 		return
 	}
 	defer srv.Close()
+	defer http.DefaultTransport.(*http.Transport).CloseIdleConnections()
 
 	address := "127.0.0.1" + srv.options.TCPAddress
 
@@ -245,23 +256,23 @@ func TestBenchmarkMqServer(t *testing.T) {
 		var message_count uint32 = 0
 		isStarted := false
 
-		cb := func(cli *mq_client.Subscription, msg mq.Message) {
+		cb := func(cli *mq_client.Subscription, msg mq_client.Message) {
 			if !isStarted {
 				start_at = time.Now()
 				isStarted = true
 			}
-			if mq.MSG_NOOP == msg.Command() {
+			if mq_client.MSG_NOOP == msg.Command() {
 				return
 			}
 
 			if 4 != msg.DataLength() {
 				// switch msg.Command() {
-				// case mq.MSG_ERROR:
+				// case mq_client.MSG_ERROR:
 				// 	t.Error(string(msg.Data()))
-				// case mq.MSG_ACK
+				// case mq_client.MSG_ACK
 				// }
-				t.Error("length is error - ", mq.ToCommandName(msg.Command()), msg.ToBytes())
-				fmt.Println("length is error - ", mq.ToCommandName(msg.Command()), msg.ToBytes())
+				t.Error("length is error - ", mq_client.ToCommandName(msg.Command()), msg.ToBytes())
+				fmt.Println("length is error - ", mq_client.ToCommandName(msg.Command()), msg.ToBytes())
 				return
 			}
 
@@ -299,31 +310,31 @@ func TestBenchmarkMqServer(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	sendClient, err := mq_client.ConnectPub("", address, 200, 512)
+	sendClient, err := mq_client.Connect("", address).Id("send").ToQueue("a")
 	if nil != err {
 		t.Error(err)
 		return
 	}
-	if err = sendClient.Id("send"); err != nil {
-		t.Error(err)
-		return
-	}
+	// if err = sendClient.Id("send"); err != nil {
+	// 	t.Error(err)
+	// 	return
+	// }
 
-	err = sendClient.ToQueue("a")
-	if nil != err {
-		t.Error(err)
-		return
-	}
+	// err = sendClient.ToQueue("a")
+	// if nil != err {
+	// 	t.Error(err)
+	// 	return
+	// }
 
 	var buf [4]byte
 	for i := uint32(0); i < message_total; i++ {
 		binary.BigEndian.PutUint32(buf[:], i)
-		msg := mq.NewMessageWriter(mq.MSG_DATA, 4+1).Append(buf[:]).Build()
+		msg := mq_client.NewMessageWriter(mq_client.MSG_DATA, 4+1).Append(buf[:]).Build()
 		sendClient.Send(msg.ToBytes())
 	}
 
 	binary.BigEndian.PutUint32(buf[:], math.MaxUint32)
-	endMsg := mq.NewMessageWriter(mq.MSG_DATA, 4+1).Append(buf[:]).Build()
+	endMsg := mq_client.NewMessageWriter(mq_client.MSG_DATA, 4+1).Append(buf[:]).Build()
 	sendClient.Send(endMsg.ToBytes())
 
 	t.Log("test is ok")
