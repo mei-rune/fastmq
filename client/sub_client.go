@@ -46,25 +46,3 @@ func (self *Subscription) subscribe(bufSize int, cb func(cli *Subscription, msg 
 		}
 	}
 }
-
-// func ConnectSub(network, address string, bufferSize int) (*SubClient, error) {
-// 	if "" == address {
-// 		return nil, errors.New("address is empty.")
-// 	}
-// 	if "" == network {
-// 		network = "tcp"
-// 	}
-
-// 	if bufferSize < HEAD_LENGTH {
-// 		bufferSize = 512
-// 	}
-
-// 	conn, err := connect(network, address)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	cli := &SubClient{conn: conn}
-// 	cli.reader.Init(conn, bufferSize)
-// 	return cli, nil
-// }

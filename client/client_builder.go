@@ -10,8 +10,7 @@ type ClientBuilder struct {
 	capacity         int
 	bufSize          int
 	id               string
-	signal           chan *SignelData
-	c                chan Message
+	//c                chan Message
 }
 
 func (self *ClientBuilder) Id(name string) *ClientBuilder {
@@ -29,7 +28,7 @@ func (self *ClientBuilder) SetQueueCapacity(capacity int) *ClientBuilder {
 	return self
 }
 
-func (self *ClientBuilder) ToQueue(name string) (*PubClient, error) {
+func (self *ClientBuilder) ToQueue(name string) (*SimplePubClient, error) {
 	msg := NewMessageWriter(MSG_PUB, len(name)+HEAD_LENGTH+8).
 		Append([]byte("queue ")).
 		Append([]byte(name)).
@@ -37,7 +36,7 @@ func (self *ClientBuilder) ToQueue(name string) (*PubClient, error) {
 	return self.to(msg)
 }
 
-func (self *ClientBuilder) ToTopic(name string) (*PubClient, error) {
+func (self *ClientBuilder) ToTopic(name string) (*SimplePubClient, error) {
 	msg := NewMessageWriter(MSG_PUB, len(name)+HEAD_LENGTH+8).
 		Append([]byte("topic ")).
 		Append([]byte(name)).
@@ -45,7 +44,7 @@ func (self *ClientBuilder) ToTopic(name string) (*PubClient, error) {
 	return self.to(msg)
 }
 
-func (self *ClientBuilder) to(msg Message) (*PubClient, error) {
+func (self *ClientBuilder) to(msg Message) (*SimplePubClient, error) {
 	conn, err := connect(self.network, self.address)
 	if err != nil {
 		return nil, err
@@ -55,8 +54,7 @@ func (self *ClientBuilder) to(msg Message) (*PubClient, error) {
 		sendId(conn, self.id)
 	}
 
-	var head_buffer [8]byte
-	err = exec(conn, msg, head_buffer)
+	err = exec(conn, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -69,27 +67,51 @@ func (self *ClientBuilder) to(msg Message) (*PubClient, error) {
 		self.bufSize = 512
 	}
 
-	if self.signal == nil {
-		self.signal = make(chan *SignelData, self.capacity)
-	}
+	return &SimplePubClient{conn: conn}, nil
+}
 
-	if self.c == nil {
-		self.c = make(chan Message, self.capacity)
-	}
+func (self *ClientBuilder) ToQueueV2(name string) (*PubClient, error) {
+	msg := NewMessageWriter(MSG_PUB, len(name)+HEAD_LENGTH+8).
+		Append([]byte("queue ")).
+		Append([]byte(name)).
+		Append([]byte("\n")).Build()
+	return self.toV2(msg)
+}
+
+func (self *ClientBuilder) ToTopicV2(name string) (*PubClient, error) {
+	msg := NewMessageWriter(MSG_PUB, len(name)+HEAD_LENGTH+8).
+		Append([]byte("topic ")).
+		Append([]byte(name)).
+		Append([]byte("\n")).Build()
+	return self.toV2(msg)
+}
+
+func (self *ClientBuilder) toV2(msg Message) (*PubClient, error) {
+	// if self.c == nil {
+	// 	self.c = make(chan Message, self.capacity)
+	// }
 
 	v2 := &PubClient{
-		Signal: self.signal, //make(chan *SignelData, capacity),
-		C:      self.c,      //make(chan Message, capacity),
+		C: make(chan Message, self.capacity),
 	}
 
 	v2.runItInGoroutine(func() {
-		v2.runRead(conn, self.bufSize)
-		conn.Close()
-	})
+		v2.runLoop(self, func(builder *ClientBuilder) (net.Conn, error) {
+			conn, err := connect(self.network, self.address)
+			if err != nil {
+				return nil, err
+			}
 
-	v2.runItInGoroutine(func() {
-		v2.runWrite(conn)
-		conn.Close()
+			if self.id != "" {
+				sendId(conn, self.id)
+			}
+
+			err = exec(conn, msg)
+			if err != nil {
+				return nil, err
+			}
+			return conn, nil
+		})
 	})
 
 	return v2, nil
@@ -121,8 +143,7 @@ func (self *ClientBuilder) subscribe(msg Message, cb func(cli *Subscription, msg
 		sendId(conn, self.id)
 	}
 
-	var head_buffer [8]byte
-	err = exec(conn, msg, head_buffer)
+	err = exec(conn, msg)
 	if err != nil {
 		return err
 	}
@@ -166,13 +187,13 @@ func sendId(conn net.Conn, name string) error {
 	return SendFull(conn, msg.ToBytes())
 }
 
-func exec(conn net.Conn, msg Message, head_buf [8]byte) error {
+func exec(conn net.Conn, msg Message) error {
 	err := SendFull(conn, msg.ToBytes())
 	if err != nil {
 		return err
 	}
 
-	recvMsg, err := ReadMessage(conn, head_buf)
+	recvMsg, err := ReadMessage(conn)
 	if err != nil {
 		return err
 	}

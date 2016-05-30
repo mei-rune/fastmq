@@ -348,8 +348,7 @@ func ToError(msg Message) error {
 }
 
 type FixedReader struct {
-	conn   io.Reader
-	buffer [HEAD_LENGTH]byte
+	conn io.Reader
 }
 
 func (self *FixedReader) Init(conn io.Reader) {
@@ -357,10 +356,12 @@ func (self *FixedReader) Init(conn io.Reader) {
 }
 
 func (self *FixedReader) ReadMessage() (Message, error) {
-	return ReadMessage(self.conn, self.buffer)
+	return ReadMessage(self.conn)
 }
 
-func ReadMessage(rd io.Reader, head_buf [8]byte) (Message, error) {
+func ReadMessage(rd io.Reader) (Message, error) {
+	var head_buf [HEAD_LENGTH]byte
+
 	_, err := io.ReadFull(rd, head_buf[:])
 	if err != nil {
 		return nil, err
@@ -385,7 +386,7 @@ func SendMagic(w io.Writer) error {
 }
 
 func ReadMagic(r io.Reader) error {
-	var buf [4]byte
+	var buf [MAGIC_LENGTH]byte
 	if _, err := io.ReadFull(r, buf[:]); err != nil {
 		return err
 	}

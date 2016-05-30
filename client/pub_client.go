@@ -1,7 +1,8 @@
 package client
 
 import (
-	"io"
+	"log"
+	"net"
 	"sync"
 	"sync/atomic"
 )
@@ -12,6 +13,31 @@ func init() {
 	responsePool.New = func() interface{} {
 		return &SignelData{}
 	}
+}
+
+type SimplePubClient struct {
+	is_closed int32
+	conn      net.Conn
+}
+
+func (self *SimplePubClient) Close() error {
+	if !atomic.CompareAndSwapInt32(&self.is_closed, 0, 1) {
+		return ErrAlreadyClosed
+	}
+
+	return self.conn.Close()
+}
+
+func (self *SimplePubClient) Stop() error {
+	return SendFull(self.conn, MSG_CLOSE_BYTES)
+}
+
+func (self *SimplePubClient) Read() (Message, error) {
+	return ReadMessage(self.conn)
+}
+
+func (self *SimplePubClient) Send(msg Message) error {
+	return SendFull(self.conn, msg.ToBytes())
 }
 
 func NewSignelData(msg Message,
@@ -36,7 +62,6 @@ type SignelData struct {
 type PubClient struct {
 	is_closed int32
 	waitGroup sync.WaitGroup
-	Signal    chan *SignelData
 	C         chan Message
 }
 
@@ -59,31 +84,6 @@ func (self *PubClient) Send(msg Message) {
 	self.C <- msg
 }
 
-func (self *PubClient) DrainRead() error {
-	for {
-		select {
-		case res, ok := <-self.Signal:
-			if !ok {
-				return ErrAlreadyClosed
-			}
-			ReleaseSignelData(res)
-		default:
-			return nil
-		}
-	}
-}
-
-func (self *PubClient) Read() (msg Message, err error) {
-	res, ok := <-self.Signal
-	if !ok {
-		return nil, ErrAlreadyClosed
-	}
-	msg = res.Msg
-	err = res.Err
-	ReleaseSignelData(res)
-	return msg, err
-}
-
 func (self *PubClient) runItInGoroutine(cb func()) {
 	self.waitGroup.Add(1)
 	go func() {
@@ -92,35 +92,92 @@ func (self *PubClient) runItInGoroutine(cb func()) {
 	}()
 }
 
-func (self *PubClient) runRead(rd io.Reader, bufSize int) {
-	defer close(self.Signal)
-
-	var reader MessageReader
-	reader.Init(rd, bufSize)
-
-	for {
-		msg, err := reader.ReadMessage()
+func (self *PubClient) runLoop(builder *ClientBuilder, create func(builder *ClientBuilder) (net.Conn, error)) {
+	err_count := 0
+	for 0 == atomic.LoadInt32(&self.is_closed) {
+		cli, err := create(builder)
 		if err != nil {
-			self.Signal <- NewSignelData(msg, err)
-			return
+			if (err_count % 100) < 5 {
+				log.Println("["+builder.id+"] connect failed,", err)
+			}
+			err_count++
+		} else {
+			err_count = 0
+			err = self.runOnce(builder, cli)
+			if err != nil {
+				log.Println("["+builder.id+"] run failed,", err)
+			}
+		}
+	}
+}
+
+func (self *PubClient) runOnce(builder *ClientBuilder, conn net.Conn) (err error) {
+	signal := make(chan *SignelData, 2)
+
+	var wait sync.WaitGroup
+	self.runItInGoroutine(func() {
+		wait.Add(1)
+		defer wait.Done()
+		self.runRead(conn, signal)
+	})
+	defer wait.Wait()
+	defer conn.Close()
+
+	return self.runWrite(conn, signal)
+}
+
+func (self *PubClient) runRead(conn net.Conn, signal chan *SignelData) {
+	defer close(signal)
+
+	for 0 == atomic.LoadInt32(&self.is_closed) {
+		msg, err := ReadMessage(conn)
+		if err != nil {
+			signal <- NewSignelData(msg, err)
+			break
 		}
 		if msg.Command() == MSG_NOOP {
 			continue
 		}
-
-		self.Signal <- NewSignelData(msg, err)
+		signal <- NewSignelData(msg, err)
 	}
 }
 
-func (self *PubClient) runWrite(writer io.Writer) {
-	for msg := range self.C {
-		err := SendFull(writer, msg.ToBytes())
-		if err != nil {
-			select {
-			case self.Signal <- NewSignelData(nil, err):
-			default:
+func (self *PubClient) runWrite(conn net.Conn, signal chan *SignelData) (err error) {
+	defer conn.Close()
+
+	for 0 == atomic.LoadInt32(&self.is_closed) {
+		select {
+		case msg, ok := <-self.C:
+			if !ok {
+				err = ErrAlreadyClosed
+				goto exited
 			}
-			return
+			if err = SendFull(conn, msg.ToBytes()); err != nil {
+				goto exited
+			}
+		case sig, ok := <-signal:
+			if !ok {
+				return nil
+			}
+			msg, e := sig.Msg, sig.Err
+			ReleaseSignelData(sig)
+			if e != nil {
+				err = e
+				goto exited
+			}
+
+			if msg.Command() == MSG_ERROR {
+				err = ToError(msg)
+				goto exited
+			}
+			log.Println("recv a unexcepted message -", ToCommandName(msg.Command()))
 		}
 	}
+
+exited:
+	conn.Close()
+	for res := range signal {
+		ReleaseSignelData(res)
+	}
+	return
 }
