@@ -9,6 +9,7 @@ import (
 )
 
 type Consumer struct {
+	closed       int32
 	topic        *Topic
 	id           int
 	C            chan mq_client.Message
@@ -28,8 +29,10 @@ func (self *Consumer) Close() error {
 	if nil == self.topic {
 		return nil
 	}
-	self.topic.remove(self.id)
-	close(self.C)
+	if atomic.CompareAndSwapInt32(&self.closed, 0, 1) {
+		self.topic.remove(self.id)
+		close(self.C)
+	}
 	self.topic = nil
 	return nil
 }
@@ -98,9 +101,7 @@ func (self *Topic) Close() error {
 	self.channels_lock.Unlock()
 
 	for _, ch := range channels {
-		close(ch.C)
-		for range ch.C {
-		}
+		ch.Close()
 	}
 	return nil
 }

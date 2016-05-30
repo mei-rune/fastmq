@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"math"
 	"net"
 	"net/http"
@@ -76,11 +75,7 @@ func TestServerPublishMessage(t *testing.T) {
 				}
 			}()
 
-			sub, err := mq_client.ConnectSub("tcp", "127.0.0.1"+srv.options.TCPAddress, 512)
-			if nil != err {
-				t.Error(err)
-				return
-			}
+			sub := mq_client.Connect("tcp", "127.0.0.1"+srv.options.TCPAddress)
 
 			msg_count := 0
 			cb := func(cli *mq_client.Subscription, recvMessage mq_client.Message) {
@@ -236,21 +231,12 @@ func TestBenchmarkMqServer(t *testing.T) {
 
 	address := "127.0.0.1" + srv.options.TCPAddress
 
-	subClient, err := mq_client.ConnectSub("", address, 512)
-	if nil != err {
-		log.Fatalln(err)
-		return
-	}
-
-	if err = subClient.Id("subscribe"); err != nil {
-		t.Error(err)
-		return
-	}
+	subClient := mq_client.Connect("", address)
+	subClient.Id("subscribe")
 
 	var wait sync.WaitGroup
 	go func() {
 		defer wait.Done()
-		defer subClient.Close()
 
 		var start_at time.Time
 		var message_count uint32 = 0

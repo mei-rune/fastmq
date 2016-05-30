@@ -18,6 +18,7 @@ import (
 const MAX_ENVELOPE_LENGTH = 65535
 const MAX_MESSAGE_LENGTH = 65523
 const HEAD_LENGTH = 8
+const MAGIC_LENGTH = 4
 
 var (
 	HEAD_MAGIC      = []byte{'a', 'a', 'v', '1'}
@@ -96,7 +97,7 @@ func (self *errReader) Read(bs []byte) (int, error) {
 	return 0, self.err
 }
 
-type Reader struct {
+type MessageReader struct {
 	conn   io.Reader
 	buffer []byte
 	start  int
@@ -105,11 +106,11 @@ type Reader struct {
 	buffer_size int
 }
 
-func (self *Reader) DataLength() int {
+func (self *MessageReader) DataLength() int {
 	return self.end - self.start
 }
 
-func (self *Reader) Init(conn io.Reader, size int) {
+func (self *MessageReader) Init(conn io.Reader, size int) {
 	self.conn = conn
 	self.buffer = MakeBytes(size)
 	self.start = 0
@@ -145,7 +146,7 @@ func readLength(bs []byte) (int, error) {
 	return length, nil
 }
 
-func (self *Reader) ensureCapacity(size int) {
+func (self *MessageReader) ensureCapacity(size int) {
 	//fmt.Println("ensureCapacity", size, self.buffer_size)
 	if self.buffer_size > size {
 		size = self.buffer_size
@@ -158,7 +159,7 @@ func (self *Reader) ensureCapacity(size int) {
 	//fmt.Println(len(tmp))
 }
 
-func (self *Reader) nextMessage() (bool, Message, error) {
+func (self *MessageReader) nextMessage() (bool, Message, error) {
 	length := self.end - self.start
 	if length < HEAD_LENGTH {
 		buf_reserve := len(self.buffer) - self.end
@@ -194,7 +195,7 @@ func (self *Reader) nextMessage() (bool, Message, error) {
 	return false, nil, nil
 }
 
-func (self *Reader) ReadMessage() (Message, error) {
+func (self *MessageReader) ReadMessage() (Message, error) {
 	ok, msg, err := self.nextMessage()
 	if ok {
 		return msg, nil
@@ -219,8 +220,8 @@ func (self *Reader) ReadMessage() (Message, error) {
 	return nil, err
 }
 
-func NewMessageReader(conn io.Reader, size int) *Reader {
-	return &Reader{
+func NewMessageReader(conn io.Reader, size int) *MessageReader {
+	return &MessageReader{
 		conn:        conn,
 		buffer:      MakeBytes(size),
 		start:       0,
