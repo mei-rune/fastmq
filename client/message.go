@@ -270,9 +270,13 @@ func (self *MeesageBuilder) WriteString(s string) (int, error) {
 }
 
 func (self *MeesageBuilder) Build() Message {
-	length := len(self.buffer) - HEAD_LENGTH
+	return BuildMessage(self.buffer)
+}
+
+func BuildMessage(buffer []byte) Message {
+	length := len(buffer) - HEAD_LENGTH
 	//if length < 65535 {
-	//	self.buffer = append(self.buffer, '\n')
+	//	buffer = append(buffer, '\n')
 	//	length++
 	//}
 
@@ -280,37 +284,37 @@ func (self *MeesageBuilder) Build() Message {
 	case length > 65535:
 		panic(ErrLengthExceed)
 	case length >= 10000:
-		self.buffer[2] = '0' + byte(length/10000)
-		self.buffer[3] = '0' + byte((length%10000)/1000)
-		self.buffer[4] = '0' + byte((length%1000)/100)
-		self.buffer[5] = '0' + byte((length%100)/10)
-		self.buffer[6] = '0' + byte(length%10)
+		buffer[2] = '0' + byte(length/10000)
+		buffer[3] = '0' + byte((length%10000)/1000)
+		buffer[4] = '0' + byte((length%1000)/100)
+		buffer[5] = '0' + byte((length%100)/10)
+		buffer[6] = '0' + byte(length%10)
 	case length >= 1000:
-		self.buffer[2] = ' '
-		self.buffer[3] = '0' + byte(length/1000)
-		self.buffer[4] = '0' + byte((length%1000)/100)
-		self.buffer[5] = '0' + byte((length%100)/10)
-		self.buffer[6] = '0' + byte(length%10)
+		buffer[2] = ' '
+		buffer[3] = '0' + byte(length/1000)
+		buffer[4] = '0' + byte((length%1000)/100)
+		buffer[5] = '0' + byte((length%100)/10)
+		buffer[6] = '0' + byte(length%10)
 	case length >= 100:
-		self.buffer[2] = ' '
-		self.buffer[3] = ' '
-		self.buffer[4] = '0' + byte(length/100)
-		self.buffer[5] = '0' + byte((length%100)/10)
-		self.buffer[6] = '0' + byte(length%10)
+		buffer[2] = ' '
+		buffer[3] = ' '
+		buffer[4] = '0' + byte(length/100)
+		buffer[5] = '0' + byte((length%100)/10)
+		buffer[6] = '0' + byte(length%10)
 	case length >= 10:
-		self.buffer[2] = ' '
-		self.buffer[3] = ' '
-		self.buffer[4] = ' '
-		self.buffer[5] = '0' + byte(length/10)
-		self.buffer[6] = '0' + byte(length%10)
+		buffer[2] = ' '
+		buffer[3] = ' '
+		buffer[4] = ' '
+		buffer[5] = '0' + byte(length/10)
+		buffer[6] = '0' + byte(length%10)
 	default:
-		self.buffer[2] = ' '
-		self.buffer[3] = ' '
-		self.buffer[4] = ' '
-		self.buffer[5] = ' '
-		self.buffer[6] = '0' + byte(length)
+		buffer[2] = ' '
+		buffer[3] = ' '
+		buffer[4] = ' '
+		buffer[5] = ' '
+		buffer[6] = '0' + byte(length)
 	}
-	return Message(self.buffer)
+	return Message(buffer)
 }
 
 func NewMessageWriter(cmd byte, capacity int) *MeesageBuilder {

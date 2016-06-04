@@ -60,9 +60,11 @@ type SignelData struct {
 }
 
 type PubClient struct {
-	is_closed int32
-	waitGroup sync.WaitGroup
-	C         chan Message
+	is_closed     int32
+	waitGroup     sync.WaitGroup
+	connect_total uint32
+	connect_ok    uint32
+	C             chan Message
 }
 
 func (self *PubClient) Close() error {
@@ -80,6 +82,14 @@ func (self *PubClient) Stop() error {
 	return nil
 }
 
+func (self *PubClient) ConnectTotal() uint32 {
+	return atomic.LoadUint32(&self.connect_total)
+}
+
+func (self *PubClient) ConnectOk() uint32 {
+	return atomic.LoadUint32(&self.connect_ok)
+}
+
 func (self *PubClient) Send(msg Message) {
 	self.C <- msg
 }
@@ -95,6 +105,7 @@ func (self *PubClient) runItInGoroutine(cb func()) {
 func (self *PubClient) runLoop(builder *ClientBuilder, create func(builder *ClientBuilder) (net.Conn, error)) {
 	err_count := 0
 	for 0 == atomic.LoadInt32(&self.is_closed) {
+		atomic.AddUint32(&self.connect_total, 1)
 		cli, err := create(builder)
 		if err != nil {
 			if (err_count % 100) < 5 {
@@ -103,6 +114,7 @@ func (self *PubClient) runLoop(builder *ClientBuilder, create func(builder *Clie
 			err_count++
 		} else {
 			err_count = 0
+			atomic.AddUint32(&self.connect_ok, 1)
 			err = self.runOnce(builder, cli)
 			if err != nil {
 				log.Println("["+builder.id+"] run failed,", err)

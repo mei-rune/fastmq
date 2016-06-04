@@ -5,6 +5,19 @@ import (
 	"net"
 )
 
+type ErrDisconnect struct {
+	err error
+}
+
+func (e *ErrDisconnect) Error() string {
+	return e.err.Error()
+}
+
+func IsConnected(e error) bool {
+	_, ok := e.(*ErrDisconnect)
+	return ok
+}
+
 type Subscription struct {
 	closed bool
 	conn   net.Conn
@@ -30,7 +43,7 @@ func (self *Subscription) subscribe(bufSize int, cb func(cli *Subscription, msg 
 			if io.EOF == err {
 				return nil
 			}
-			return err
+			return &ErrDisconnect{err}
 		}
 
 		if nil != recvMessage {
@@ -38,7 +51,7 @@ func (self *Subscription) subscribe(bufSize int, cb func(cli *Subscription, msg 
 				if self.closed {
 					return nil
 				} else {
-					return ErrUnexceptedAck
+					return &ErrDisconnect{ErrUnexceptedAck}
 				}
 			}
 
