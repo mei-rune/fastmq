@@ -5,7 +5,6 @@ import (
 	"hash/crc32"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"time"
 )
@@ -23,7 +22,7 @@ type Options struct {
 	MsgTimeout       time.Duration
 	MsgQueueCapacity int
 
-	Handler http.Handler
+	Handler interface{}
 
 	Logger *log.Logger
 }

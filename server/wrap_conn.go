@@ -32,10 +32,9 @@ func wrap(buf []byte, conn net.Conn) net.Conn {
 }
 
 type Listener struct {
-	network string
-	addr    net.Addr
-	closer  io.Closer
-	c       chan net.Conn
+	addr   net.Addr
+	closer io.Closer
+	c      chan net.Conn
 }
 
 // Accept waits for and returns the next connection to the listener.
@@ -46,7 +45,7 @@ func (self *Listener) Accept() (net.Conn, error) {
 	}
 	return nil, &net.OpError{
 		Op:     "accept",
-		Net:    self.network,
+		Net:    self.addr.Network(),
 		Source: self.addr,
 		Addr:   self.addr,
 		Err:    io.EOF,
