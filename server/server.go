@@ -32,6 +32,7 @@ type Server struct {
 	waitGroup    sync.WaitGroup
 	listener     net.Listener
 	bypass       ByPass
+	watcher      watcher
 	clients_lock sync.Mutex
 	clients      *list.List
 	queues_lock  sync.RWMutex
@@ -294,6 +295,8 @@ func (self *Server) CreateQueueIfNotExists(name string) *Queue {
 	queue = creatQueue(self, name, self.options.MsgQueueCapacity)
 	self.queues[name] = queue
 	self.queues_lock.Unlock()
+
+	self.watcher.onNewQueue(name)
 	return queue
 }
 
@@ -315,6 +318,8 @@ func (self *Server) CreateTopicIfNotExists(name string) *Topic {
 	topic = creatTopic(self, name, self.options.MsgQueueCapacity)
 	self.topics[name] = topic
 	self.topics_lock.Unlock()
+
+	self.watcher.onNewTopic(name)
 	return topic
 }
 
@@ -345,6 +350,9 @@ func NewServer(opts *Options) (*Server, error) {
 			return nil, err
 		}
 	}
+
+	srv.watcher.topic = DummyProducer
+	srv.watcher.topic = srv.CreateTopicIfNotExists("_sys.events")
 
 	srv.RunItInGoroutine(func() {
 		srv.runLoop(listener)

@@ -154,3 +154,14 @@ func (self *Topic) remove(id int) (ret *Consumer) {
 func creatTopic(srv *Server, name string, capacity int) *Topic {
 	return &Topic{name: name, capacity: capacity}
 }
+
+type dummyProducer struct{}
+
+func (self *dummyProducer) Send(msg mq_client.Message) error {
+	return nil
+}
+func (self *dummyProducer) SendTimeout(msg mq_client.Message, timeout time.Duration) error {
+	return nil
+}
+
+var DummyProducer = &dummyProducer{}
