@@ -44,11 +44,11 @@ func (self *Listener) Accept() (net.Conn, error) {
 		return conn, nil
 	}
 	return nil, &net.OpError{
-		Op:     "accept",
-		Net:    self.addr.Network(),
-		Source: self.addr,
-		Addr:   self.addr,
-		Err:    io.EOF,
+		Op:  "accept",
+		Net: self.addr.Network(),
+		//Source: self.addr,
+		Addr: self.addr,
+		Err:  io.EOF,
 	}
 }
 
