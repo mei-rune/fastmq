@@ -68,22 +68,34 @@ func (self *fastEngine) On(conn net.Conn) {
 			url_path = bytes.TrimPrefix(url_path, self.prefix)
 		}
 
-		if bytes.HasPrefix(url_path, []byte("/mq/queues")) {
+		if bytes.Equal(url_path, []byte("/mq/queues")) {
 			self.queuesIndex(ctx)
-		} else if bytes.HasPrefix(url_path, []byte("/mq/topics")) {
+		} else if bytes.Equal(url_path, []byte("/mq/topics")) {
 			self.topicsIndex(ctx)
-		} else if bytes.HasPrefix(url_path, []byte("/mq/clients")) {
+		} else if bytes.Equal(url_path, []byte("/mq/clients")) {
 			self.clientsIndex(ctx)
-		} else if bytes.HasPrefix(url_path, []byte("/mq/queue/")) {
-			self.doHandler(ctx, bytes.TrimPrefix(url_path, []byte("/mq/queue/")),
+		} else if bytes.HasPrefix(url_path, []byte("/mq/queues/")) {
+			url_path = bytes.TrimPrefix(url_path, []byte("/mq/queues/"))
+			if len(url_path) == 0 {
+				self.queuesIndex(ctx)
+				return
+			}
+
+			self.doHandler(ctx, bytes.TrimPrefix(url_path, []byte("/mq/queues/")),
 				func(name []byte) *mq_server.Consumer {
 					return self.srv.CreateQueueIfNotExists(string(name)).ListenOn()
 				},
 				func(name []byte) mq_server.Producer {
 					return self.srv.CreateQueueIfNotExists(string(name))
 				})
-		} else if bytes.HasPrefix(url_path, []byte("/mq/topic/")) {
-			self.doHandler(ctx, bytes.TrimPrefix(url_path, []byte("/mq/topic/")),
+		} else if bytes.HasPrefix(url_path, []byte("/mq/topics/")) {
+			url_path = bytes.TrimPrefix(url_path, []byte("/mq/topics/"))
+			if len(url_path) == 0 {
+				self.queuesIndex(ctx)
+				return
+			}
+
+			self.doHandler(ctx, bytes.TrimPrefix(url_path, []byte("/mq/topics/")),
 				func(name []byte) *mq_server.Consumer {
 					return self.srv.CreateTopicIfNotExists(string(name)).ListenOn()
 				},

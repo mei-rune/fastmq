@@ -146,7 +146,7 @@ func TestServerHttpQueuePush(t *testing.T) {
 	defer srv.Close()
 	defer http.DefaultTransport.(*http.Transport).CloseIdleConnections()
 
-	res, err := http.Post("http://127.0.0.1"+srv.options.TCPAddress+"/mq/queue/aa", "text/plain", strings.NewReader("AAA"))
+	res, err := http.Post("http://127.0.0.1"+srv.options.TCPAddress+"/mq/queues/aa", "text/plain", strings.NewReader("AAA"))
 	if nil != err {
 		t.Error(err)
 		return
@@ -194,7 +194,7 @@ func TestServerHttpQueueGet(t *testing.T) {
 	srv.CreateQueueIfNotExists("aa").C <- msg
 
 	//fmt.Println(string(msg.Data()))
-	res, err := http.Get("http://127.0.0.1" + srv.options.TCPAddress + "/mq/queue/aa")
+	res, err := http.Get("http://127.0.0.1" + srv.options.TCPAddress + "/mq/queues/aa")
 	if nil != err {
 		t.Error(err)
 		return
