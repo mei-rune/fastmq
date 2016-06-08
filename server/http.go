@@ -14,9 +14,13 @@ import (
 )
 
 func StandardConnection(srv *Server) (ByPass, error) {
-	engine := &standardEngine{srv: srv}
-	if nil != srv.GetOptions().Handler {
-		handler, ok := srv.GetOptions().Handler.(http.Handler)
+	engine := &standardEngine{srv: srv,
+		hasPrefix:    "" != srv.GetOptions().HttpPrefix,
+		prefix:       srv.GetOptions().HttpPrefix,
+		is_redirect:  "" != srv.GetOptions().HttpRedirectUrl,
+		redirect_url: srv.GetOptions().HttpRedirectUrl}
+	if nil != srv.GetOptions().HttpHandler {
+		handler, ok := srv.GetOptions().HttpHandler.(http.Handler)
 		if !ok {
 			return nil, ErrHandlerType
 		}
@@ -39,9 +43,13 @@ func StandardConnection(srv *Server) (ByPass, error) {
 }
 
 type standardEngine struct {
-	srv      *Server
-	listener *Listener
-	handler  http.Handler
+	srv          *Server
+	listener     *Listener
+	handler      http.Handler
+	hasPrefix    bool
+	prefix       string
+	is_redirect  bool
+	redirect_url string
 }
 
 func (self *standardEngine) Close() error {
@@ -65,22 +73,36 @@ func (self *standardEngine) createListener() net.Listener {
 }
 
 func (self *standardEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/mq/queues") {
+	url_path := r.URL.Path
+	if self.hasPrefix {
+		if !strings.HasPrefix(url_path, self.prefix) {
+			if self.is_redirect {
+				http.Redirect(w, r, self.redirect_url, http.StatusMovedPermanently)
+				return
+			}
+
+			http.DefaultServeMux.ServeHTTP(w, r)
+			return
+		}
+		url_path = strings.TrimPrefix(url_path, self.prefix)
+	}
+
+	if strings.HasPrefix(url_path, "/mq/queues") {
 		self.queuesIndex(w, r)
-	} else if strings.HasPrefix(r.URL.Path, "/mq/topics") {
+	} else if strings.HasPrefix(url_path, "/mq/topics") {
 		self.topicsIndex(w, r)
-	} else if strings.HasPrefix(r.URL.Path, "/mq/clients") {
+	} else if strings.HasPrefix(url_path, "/mq/clients") {
 		self.clientsIndex(w, r)
-	} else if strings.HasPrefix(r.URL.Path, "/mq/queue/") {
-		self.doHandler(w, r, "/mq/queue/",
+	} else if strings.HasPrefix(url_path, "/mq/queue/") {
+		self.doHandler(w, r, strings.TrimPrefix(url_path, "/mq/queue/"),
 			func(name string) *Consumer {
 				return self.srv.CreateQueueIfNotExists(name).ListenOn()
 			},
 			func(name string) Producer {
 				return self.srv.CreateQueueIfNotExists(name)
 			})
-	} else if strings.HasPrefix(r.URL.Path, "/mq/topic/") {
-		self.doHandler(w, r, "/mq/topic/",
+	} else if strings.HasPrefix(url_path, "/mq/topic/") {
+		self.doHandler(w, r, strings.TrimPrefix(url_path, "/mq/topic/"),
 			func(name string) *Consumer {
 				return self.srv.CreateTopicIfNotExists(name).ListenOn()
 			},
@@ -93,9 +115,8 @@ func (self *standardEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (self *standardEngine) doHandler(w http.ResponseWriter, r *http.Request,
-	prefix string, recv_cb func(name string) *Consumer,
+	url_path string, recv_cb func(name string) *Consumer,
 	send_cb func(name string) Producer) {
-	url_path := strings.TrimPrefix(r.URL.Path, prefix)
 	url_path = strings.TrimSuffix(url_path, "/")
 	query_params := r.URL.Query()
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log"
 	"net"
-	"net/http"
 	"time"
 
 	mq_client "github.com/runner-mei/fastmq/client"
@@ -17,9 +16,12 @@ import (
 var ErrHandlerType = errors.New("handler isn't fasthttp.RequestHandler.")
 
 func FastConnection(srv *mq_server.Server) (mq_server.ByPass, error) {
-	engine := &fastEngine{srv: srv}
-	if nil != srv.GetOptions().Handler {
-		handler, ok := srv.GetOptions().Handler.(fasthttp.RequestHandler)
+	engine := &fastEngine{srv: srv,
+		prefix:       []byte(srv.GetOptions().HttpPrefix),
+		is_redirect:  "" != srv.GetOptions().HttpRedirectUrl,
+		redirect_url: srv.GetOptions().HttpRedirectUrl}
+	if nil != srv.GetOptions().HttpHandler {
+		handler, ok := srv.GetOptions().HttpHandler.(fasthttp.RequestHandler)
 		if !ok {
 			return nil, ErrHandlerType
 		}
@@ -32,12 +34,19 @@ func FastConnection(srv *mq_server.Server) (mq_server.ByPass, error) {
 		}
 	}
 
+	if len(engine.prefix) == 0 {
+		engine.prefix = nil
+	}
+
 	return engine, nil
 }
 
 type fastEngine struct {
-	srv     *mq_server.Server
-	handler fasthttp.RequestHandler
+	srv          *mq_server.Server
+	handler      fasthttp.RequestHandler
+	prefix       []byte
+	is_redirect  bool
+	redirect_url string
 }
 
 func (self *fastEngine) Close() error {
@@ -47,6 +56,18 @@ func (self *fastEngine) Close() error {
 func (self *fastEngine) On(conn net.Conn) {
 	err := fasthttp.ServeConn(conn, func(ctx *fasthttp.RequestCtx) {
 		url_path := ctx.Path()
+		if nil != self.prefix {
+			if !bytes.HasPrefix(url_path, self.prefix) {
+				if self.is_redirect {
+					ctx.Redirect(self.redirect_url, fasthttp.StatusMovedPermanently)
+					return
+				}
+				ctx.NotFound()
+				return
+			}
+			url_path = bytes.TrimPrefix(url_path, self.prefix)
+		}
+
 		if bytes.HasPrefix(url_path, []byte("/mq/queues")) {
 			self.queuesIndex(ctx)
 		} else if bytes.HasPrefix(url_path, []byte("/mq/topics")) {
@@ -54,7 +75,7 @@ func (self *fastEngine) On(conn net.Conn) {
 		} else if bytes.HasPrefix(url_path, []byte("/mq/clients")) {
 			self.clientsIndex(ctx)
 		} else if bytes.HasPrefix(url_path, []byte("/mq/queue/")) {
-			self.doHandler(ctx, []byte("/mq/queue/"),
+			self.doHandler(ctx, bytes.TrimPrefix(url_path, []byte("/mq/queue/")),
 				func(name []byte) *mq_server.Consumer {
 					return self.srv.CreateQueueIfNotExists(string(name)).ListenOn()
 				},
@@ -62,7 +83,7 @@ func (self *fastEngine) On(conn net.Conn) {
 					return self.srv.CreateQueueIfNotExists(string(name))
 				})
 		} else if bytes.HasPrefix(url_path, []byte("/mq/topic/")) {
-			self.doHandler(ctx, []byte("/mq/topic/"),
+			self.doHandler(ctx, bytes.TrimPrefix(url_path, []byte("/mq/topic/")),
 				func(name []byte) *mq_server.Consumer {
 					return self.srv.CreateTopicIfNotExists(string(name)).ListenOn()
 				},
@@ -80,9 +101,8 @@ func (self *fastEngine) On(conn net.Conn) {
 }
 
 func (self *fastEngine) doHandler(ctx *fasthttp.RequestCtx,
-	prefix []byte, recv_cb func(name []byte) *mq_server.Consumer,
+	url_path []byte, recv_cb func(name []byte) *mq_server.Consumer,
 	send_cb func(name []byte) mq_server.Producer) {
-	url_path := bytes.TrimPrefix(ctx.Path(), prefix)
 	url_path = bytes.TrimSuffix(url_path, []byte("/"))
 	uri := ctx.URI()
 
@@ -97,18 +117,18 @@ func (self *fastEngine) doHandler(ctx *fasthttp.RequestCtx,
 		case msg, ok := <-consumer.C:
 			timer.Stop()
 			if !ok {
-				ctx.SetStatusCode(http.StatusServiceUnavailable)
+				ctx.SetStatusCode(fasthttp.StatusServiceUnavailable)
 				ctx.Write([]byte("queue is closed."))
 				return
 			}
 
 			ctx.Response.Header.Set("Content-Type", "text/plain")
-			ctx.SetStatusCode(http.StatusOK)
+			ctx.SetStatusCode(fasthttp.StatusOK)
 			if msg.DataLength() > 0 {
 				ctx.Write(msg.Data())
 			}
 		case <-timer.C:
-			ctx.SetStatusCode(http.StatusNoContent)
+			ctx.SetStatusCode(fasthttp.StatusNoContent)
 		}
 	} else if bytes.Equal(method, []byte("PUT")) || bytes.Equal(method, []byte("POST")) {
 		bs := ctx.PostBody()
@@ -124,14 +144,14 @@ func (self *fastEngine) doHandler(ctx *fasthttp.RequestCtx,
 		// fmt.Println("===================", msg.DataLength(), mq_client.ToCommandName(msg.Command()), err, timeout, url_path)
 		ctx.Response.Header.Set("Content-Type", "text/plain")
 		if err != nil {
-			ctx.SetStatusCode(http.StatusRequestTimeout)
+			ctx.SetStatusCode(fasthttp.StatusRequestTimeout)
 			ctx.Write([]byte(err.Error()))
 		} else {
-			ctx.SetStatusCode(http.StatusOK)
+			ctx.SetStatusCode(fasthttp.StatusOK)
 			ctx.Write([]byte("OK"))
 		}
 	} else {
-		ctx.SetStatusCode(http.StatusMethodNotAllowed)
+		ctx.SetStatusCode(fasthttp.StatusMethodNotAllowed)
 		ctx.Write([]byte("Method must is PUT or GET."))
 	}
 }
@@ -149,17 +169,17 @@ func GetTimeout(uri *fasthttp.URI, value time.Duration) time.Duration {
 }
 
 func (self *fastEngine) queuesIndex(ctx *fasthttp.RequestCtx) {
-	ctx.SetStatusCode(http.StatusOK)
+	ctx.SetStatusCode(fasthttp.StatusOK)
 	json.NewEncoder(ctx).Encode(self.srv.GetQueues())
 }
 
 func (self *fastEngine) topicsIndex(ctx *fasthttp.RequestCtx) {
-	ctx.SetStatusCode(http.StatusOK)
+	ctx.SetStatusCode(fasthttp.StatusOK)
 	json.NewEncoder(ctx).Encode(self.srv.GetTopics())
 }
 
 func (self *fastEngine) clientsIndex(ctx *fasthttp.RequestCtx) {
-	ctx.SetStatusCode(http.StatusOK)
+	ctx.SetStatusCode(fasthttp.StatusOK)
 	json.NewEncoder(ctx).Encode(self.srv.GetClients())
 }
 

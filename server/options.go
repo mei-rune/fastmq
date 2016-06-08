@@ -15,14 +15,15 @@ type Options struct {
 	Verbose    bool
 	TCPAddress string
 
-	HttpEnabled bool
-
 	// msg and command options
 	MsgBufferSize    int
 	MsgTimeout       time.Duration
 	MsgQueueCapacity int
 
-	Handler interface{}
+	HttpEnabled     bool
+	HttpPrefix      string
+	HttpRedirectUrl string
+	HttpHandler     interface{}
 
 	Logger *log.Logger
 }
@@ -54,7 +55,7 @@ func (self *Options) ensureDefault() {
 		self.MsgQueueCapacity = 200
 	}
 
-	if self.Handler != nil {
+	if self.HttpHandler != nil {
 		self.HttpEnabled = true
 	}
 
