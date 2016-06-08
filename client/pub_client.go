@@ -29,7 +29,24 @@ func (self *SimplePubClient) Close() error {
 }
 
 func (self *SimplePubClient) Stop() error {
-	return SendFull(self.conn, MSG_CLOSE_BYTES)
+	if err := SendFull(self.conn, MSG_CLOSE_BYTES); err != nil {
+		return err
+	}
+
+	for i := 0; i < 10; i++ {
+		msg, err := self.Read()
+		if err != nil {
+			return err
+		}
+		if msg.Command() == MSG_ACK {
+			return nil
+		}
+
+		if msg.Command() == MSG_ERROR {
+			return ToError(msg)
+		}
+	}
+	return ErrTimeout
 }
 
 func (self *SimplePubClient) Read() (Message, error) {
