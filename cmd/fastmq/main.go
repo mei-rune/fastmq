@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	mq "github.com/runner-mei/fastmq"
 	mq_client "github.com/runner-mei/fastmq/client"
 	"github.com/runner-mei/fastmq/server"
 
@@ -66,22 +65,19 @@ func (self *sendCmd) Run(args []string) {
 	// 	return
 	// }
 
-	cli, err := mq_client.ConnectPub("", self.address, 512, 512)
-	if nil != err {
-		log.Fatalln(err)
-		return
-	}
-	defer cli.Close()
+	cliBuilder := mq_client.Connect("", self.address)
 
 	if self.id != "" {
-		cli.Id(self.id)
+		cliBuilder.Id(self.id)
 	}
 
+	var err error
+	var cli *mq_client.SimplePubClient
 	switch self.typ {
 	case "topic":
-		err = cli.ToTopic(args[0])
+		cli, err = cliBuilder.ToTopic(args[0])
 	case "queue":
-		err = cli.ToQueue(args[0])
+		cli, err = cliBuilder.ToQueue(args[0])
 	default:
 		log.Fatalln("arguments error: type must is 'queue' or 'topic'.")
 		return
@@ -91,25 +87,26 @@ func (self *sendCmd) Run(args []string) {
 		log.Fatalln(err)
 		return
 	}
+	defer cli.Close()
 
 	if self.repeat == 0 {
 		self.repeat = 1
 	}
 
 	if self.stat {
-		begin := mq.NewMessageWriter(mq.MSG_DATA, len(args[1])+1).Append([]byte("begin")).Build()
-		end := mq.NewMessageWriter(mq.MSG_DATA, len(args[1])+1).Append([]byte("end")).Build()
+		begin := mq_client.NewMessageWriter(mq_client.MSG_DATA, len(args[1])+1).Append([]byte("begin")).Build()
+		end := mq_client.NewMessageWriter(mq_client.MSG_DATA, len(args[1])+1).Append([]byte("end")).Build()
 
 		cli.Send(begin)
 
 		for i := uint(0); i < self.repeat; i++ {
-			msg := mq.NewMessageWriter(mq.MSG_DATA, len(args[1])+1).Append([]byte(args[1] + strconv.FormatUint(uint64(i), 10))).Build()
+			msg := mq_client.NewMessageWriter(mq_client.MSG_DATA, len(args[1])+1).Append([]byte(args[1] + strconv.FormatUint(uint64(i), 10))).Build()
 			cli.Send(msg)
 		}
 
 		cli.Send(end)
 	} else {
-		msg := mq.NewMessageWriter(mq.MSG_DATA, len(args[1])+1).Append([]byte(args[1])).Build()
+		msg := mq_client.NewMessageWriter(mq_client.MSG_DATA, len(args[1])+1).Append([]byte(args[1])).Build()
 		for i := uint(0); i < self.repeat; i++ {
 			cli.Send(msg)
 		}
@@ -149,44 +146,36 @@ func (self *subscribeCmd) Run(args []string) {
 	// }
 
 	var err error
-	var forward *mq_client.PubClient
+	var forward *mq_client.SimplePubClient
 
 	if self.forward != "" {
-		forward, err = mq_client.ConnectPub("", self.address, 512, 512)
-		if nil != err {
-			log.Fatalln(err)
-			return
-		}
+		forwardBuilder := mq_client.Connect("", self.address)
 
 		if self.id != "" {
-			forward.Id(self.id + ".forward")
+			forwardBuilder.Id(self.id + ".forward")
 		}
 
 		switch self.typ {
 		case "topic":
-			err = forward.ToTopic(self.forward)
+			forward, err = forwardBuilder.ToTopic(self.forward)
 		case "queue":
-			err = forward.ToQueue(self.forward)
+			forward, err = forwardBuilder.ToQueue(self.forward)
 		default:
 			log.Fatalln("arguments error: type must is 'queue' or 'topic'.")
 			return
 		}
 	}
 
-	sub, err := mq_client.ConnectSub("", self.address, 512)
-	if nil != err {
-		log.Fatalln(err)
-		return
-	}
+	subBuilder := mq_client.Connect("", self.address)
 
 	if self.id != "" {
-		sub.Id(self.id)
+		subBuilder.Id(self.id)
 	}
 
 	var start_at, end_at time.Time
 	var message_count uint = 0
 
-	cb := func(cli *mq_client.Subscription, msg mq.Message) {
+	cb := func(cli *mq_client.Subscription, msg mq_client.Message) {
 		if self.console {
 			fmt.Println(string(msg.Data()))
 		}
@@ -212,9 +201,9 @@ func (self *subscribeCmd) Run(args []string) {
 
 	switch self.typ {
 	case "topic":
-		err = sub.SubscribeTopic(args[0], cb)
+		err = subBuilder.SubscribeTopic(args[0], cb)
 	case "queue":
-		err = sub.SubscribeQueue(args[0], cb)
+		err = subBuilder.SubscribeQueue(args[0], cb)
 	default:
 		log.Fatalln("arguments error: type must is 'queue' or 'topic'.")
 		return

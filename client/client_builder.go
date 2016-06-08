@@ -5,6 +5,11 @@ import (
 	"net"
 )
 
+const (
+	QUEUE = "queue"
+	TOPIC = "topic"
+)
+
 type ClientBuilder struct {
 	network, address string
 	capacity         int
@@ -39,6 +44,15 @@ func (self *ClientBuilder) ToQueue(name string) (*SimplePubClient, error) {
 func (self *ClientBuilder) ToTopic(name string) (*SimplePubClient, error) {
 	msg := NewMessageWriter(MSG_PUB, len(name)+HEAD_LENGTH+8).
 		Append([]byte("topic ")).
+		Append([]byte(name)).
+		Append([]byte("\n")).Build()
+	return self.to(msg)
+}
+
+func (self *ClientBuilder) To(typ, name string) (*SimplePubClient, error) {
+	msg := NewMessageWriter(MSG_PUB, len(name)+HEAD_LENGTH+8).
+		Append([]byte(typ)).
+		Append([]byte(" ")).
 		Append([]byte(name)).
 		Append([]byte("\n")).Build()
 	return self.to(msg)
@@ -128,6 +142,15 @@ func (self *ClientBuilder) SubscribeQueue(name string, cb func(cli *Subscription
 func (self *ClientBuilder) SubscribeTopic(name string, cb func(cli *Subscription, msg Message)) error {
 	msg := NewMessageWriter(MSG_SUB, len(name)+HEAD_LENGTH+8).
 		Append([]byte("topic ")).
+		Append([]byte(name)).
+		Append([]byte("\n")).Build()
+	return self.subscribe(msg, cb)
+}
+
+func (self *ClientBuilder) Subscribe(typ, name string, cb func(cli *Subscription, msg Message)) error {
+	msg := NewMessageWriter(MSG_SUB, len(name)+HEAD_LENGTH+8).
+		Append([]byte(typ)).
+		Append([]byte(" ")).
 		Append([]byte(name)).
 		Append([]byte("\n")).Build()
 	return self.subscribe(msg, cb)
