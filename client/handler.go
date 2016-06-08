@@ -32,7 +32,7 @@ type Handler struct {
 	last_error error
 }
 
-func (self *Handler) Stats() interface{} {
+func (self *Handler) Stats() map[string]interface{} {
 	return map[string]interface{}{
 		"read_connect_last_at":  time.Unix(0, atomic.LoadInt64(&self.read_connect_last_at)),
 		"read_connect_total":    atomic.LoadUint32(&self.read_connect_total),
