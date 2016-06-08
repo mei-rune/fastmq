@@ -388,3 +388,21 @@ func (self *QueueMgr) CreateHandlerIfNotExists(builder *ClientBuilder, typ, name
 		cb)
 	self.handlers[name] = handler
 }
+
+func NewQueueMgr(url, typ, qname, matchType, matchName string, cb func(mgr *QueueMgr, name string)) *QueueMgr {
+	if typ == "" {
+		typ = TOPIC
+	}
+	if qname == "" {
+		qname = SYS_EVENTS
+	}
+
+	return &QueueMgr{
+		Url:        url,
+		Qtype:      typ,
+		Qname:      qname,
+		qmatchType: matchType,
+		qmatchName: matchName,
+		shutdown:   make(chan struct{}),
+		create:     cb}
+}

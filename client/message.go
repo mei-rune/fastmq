@@ -19,6 +19,7 @@ const MAX_ENVELOPE_LENGTH = 65535
 const MAX_MESSAGE_LENGTH = 65523
 const HEAD_LENGTH = 8
 const MAGIC_LENGTH = 4
+const SYS_EVENTS = "_sys.events"
 
 var (
 	HEAD_MAGIC      = []byte{'a', 'a', 'v', '1'}
