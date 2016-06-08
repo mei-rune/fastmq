@@ -26,9 +26,9 @@ type Handler struct {
 	processMessage func(msg Message, c chan Message)
 
 	builder    *ClientBuilder
-	typ        string
-	recv_qname string
-	send_qname string
+	Typ        string
+	RecvQname  string
+	SendQname  string
 	last_error error
 }
 
@@ -44,16 +44,17 @@ func (self *Handler) Stats() map[string]interface{} {
 	}
 }
 
-func (self *Handler) Close() {
+func (self *Handler) Close() error {
 	if !atomic.CompareAndSwapInt32(&self.closed, 0, 1) {
-		return
+		return nil
 	}
 
 	close(self.c)
 	self.wait.Wait()
+	return nil
 }
 
-func (self *Handler) catchThrow(err *error) {
+func (self *Handler) CatchThrow(err *error) {
 	if o := recover(); nil != o {
 		var buffer bytes.Buffer
 		buffer.WriteString(fmt.Sprintf("[panic] %v", o))
@@ -113,13 +114,13 @@ func (self *Handler) runLoop(builder *ClientBuilder, id string,
 }
 
 func (self *Handler) runWrite(builder *ClientBuilder) (err error) {
-	defer self.catchThrow(&err)
+	defer self.CatchThrow(&err)
 
-	log.Println("[mq] [" + self.send_qname + "] connect to mq server......")
+	log.Println("[mq] [" + self.SendQname + "] connect to mq server......")
 	atomic.StoreInt64(&self.write_connect_last_at, time.Now().UnixNano())
 	atomic.AddUint32(&self.write_connect_total, 1)
 
-	w, e := builder.To(self.typ, self.send_qname)
+	w, e := builder.To(self.Typ, self.SendQname)
 	if e != nil {
 		return e
 	}
@@ -129,26 +130,26 @@ func (self *Handler) runWrite(builder *ClientBuilder) (err error) {
 
 	for msg := range self.c {
 		if err = w.Send(msg); err != nil {
-			log.Println("[mq] ["+self.send_qname+"] send message fialed,", err)
+			log.Println("[mq] ["+self.SendQname+"] send message fialed,", err)
 			return nil
 		}
 	}
 
-	log.Println("[mq] [" + self.send_qname + "] mq server is closed")
+	log.Println("[mq] [" + self.SendQname + "] mq server is closed")
 	return nil
 }
 
 func (self *Handler) runRead(builder *ClientBuilder) (err error) {
-	defer self.catchThrow(&err)
+	defer self.CatchThrow(&err)
 
-	log.Println("[mq] [" + self.recv_qname + "] subscribe to mq server......")
+	log.Println("[mq] [" + self.RecvQname + "] subscribe to mq server......")
 	atomic.StoreInt64(&self.read_connect_last_at, time.Now().UnixNano())
 	atomic.AddUint32(&self.read_connect_total, 1)
 
-	err = builder.Subscribe(self.typ, self.recv_qname,
+	err = builder.Subscribe(self.Typ, self.RecvQname,
 		func(subscription *Subscription, msg Message) {
 			if MSG_DATA != msg.Command() {
-				log.Println("[mq] ["+self.recv_qname+"] recv unexcepted message - ", ToCommandName(msg.Command()))
+				log.Println("[mq] ["+self.RecvQname+"] recv unexcepted message - ", ToCommandName(msg.Command()))
 				return
 			}
 
@@ -157,7 +158,7 @@ func (self *Handler) runRead(builder *ClientBuilder) (err error) {
 
 	if IsConnected(err) {
 		atomic.AddUint32(&self.read_connect_ok, 1)
-		log.Println("[mq] ["+self.recv_qname+"] mq is disconnected, ", err)
+		log.Println("[mq] ["+self.RecvQname+"] mq is disconnected, ", err)
 		return nil
 	}
 	return err
@@ -177,9 +178,9 @@ func NewHandler(builder *ClientBuilder, id, typ, rqueue, squeue string,
 	cb func(msg Message, c chan Message)) *Handler {
 	handler := &Handler{
 		builder:        builder,
-		typ:            typ,
-		recv_qname:     rqueue,
-		send_qname:     squeue,
+		Typ:            typ,
+		RecvQname:      rqueue,
+		SendQname:      squeue,
 		c:              make(chan Message, 1000),
 		processMessage: cb}
 
