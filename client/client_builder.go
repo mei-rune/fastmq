@@ -18,6 +18,16 @@ type ClientBuilder struct {
 	//c                chan Message
 }
 
+func (self *ClientBuilder) Clone() *ClientBuilder {
+	return &ClientBuilder{
+		network:  self.network,
+		address:  self.address,
+		capacity: self.capacity,
+		bufSize:  self.bufSize,
+		id:       self.id,
+	}
+}
+
 func (self *ClientBuilder) Id(name string) *ClientBuilder {
 	self.id = name
 	return self

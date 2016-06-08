@@ -2,59 +2,41 @@ package client
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-type Handler struct {
-	read_connect_last_at  int64
-	write_connect_last_at int64
-
-	read_connect_total  uint32
-	write_connect_total uint32
-	read_connect_ok     uint32
-	write_connect_ok    uint32
-
-	closed         int32
-	wait           sync.WaitGroup
-	c              chan Message
-	processMessage func(msg Message, c chan Message)
-
-	builder    *ClientBuilder
-	Typ        string
-	RecvQname  string
-	SendQname  string
-	last_error error
+type Base struct {
+	closed int32
+	wait   sync.WaitGroup
 }
 
-func (self *Handler) Stats() map[string]interface{} {
-	return map[string]interface{}{
-		"read_connect_last_at":  time.Unix(0, atomic.LoadInt64(&self.read_connect_last_at)),
-		"read_connect_total":    atomic.LoadUint32(&self.read_connect_total),
-		"read_connect_ok":       atomic.LoadUint32(&self.read_connect_ok),
-		"write_connect_last_at": time.Unix(0, atomic.LoadInt64(&self.write_connect_last_at)),
-		"write_connect_total":   atomic.LoadUint32(&self.write_connect_total),
-		"write_connect_ok":      atomic.LoadUint32(&self.write_connect_ok),
-		"last_error":            self.last_error,
-	}
-}
-
-func (self *Handler) Close() error {
+func (self *Base) CloseWith(closeHandle func() error) error {
 	if !atomic.CompareAndSwapInt32(&self.closed, 0, 1) {
 		return nil
 	}
-
-	close(self.c)
+	var err error
+	if nil != closeHandle {
+		err = closeHandle()
+	}
 	self.wait.Wait()
-	return nil
+	return err
 }
 
-func (self *Handler) CatchThrow(err *error) {
+func (self *Base) IsClosed() bool {
+	return 0 != atomic.LoadInt32(&self.closed)
+}
+
+func (self *Base) CatchThrow(err *error) {
 	if o := recover(); nil != o {
 		var buffer bytes.Buffer
 		buffer.WriteString(fmt.Sprintf("[panic] %v", o))
@@ -77,12 +59,52 @@ func (self *Handler) CatchThrow(err *error) {
 	}
 }
 
-func (self *Handler) RunItInGoroutine(cb func()) {
+func (self *Base) RunItInGoroutine(cb func()) {
 	self.wait.Add(1)
 	go func() {
 		cb()
 		self.wait.Done()
 	}()
+}
+
+type Handler struct {
+	read_connect_last_at  int64
+	write_connect_last_at int64
+
+	read_connect_total  uint32
+	write_connect_total uint32
+	read_connect_ok     uint32
+	write_connect_ok    uint32
+
+	*Base
+	c              chan Message
+	processMessage func(msg Message, c chan Message)
+
+	Typ        string
+	RecvQname  string
+	SendQname  string
+	last_error error
+}
+
+func (self *Handler) Stats() map[string]interface{} {
+	return map[string]interface{}{
+		"read_connect_last_at":  time.Unix(0, atomic.LoadInt64(&self.read_connect_last_at)),
+		"read_connect_total":    atomic.LoadUint32(&self.read_connect_total),
+		"read_connect_ok":       atomic.LoadUint32(&self.read_connect_ok),
+		"write_connect_last_at": time.Unix(0, atomic.LoadInt64(&self.write_connect_last_at)),
+		"write_connect_total":   atomic.LoadUint32(&self.write_connect_total),
+		"write_connect_ok":      atomic.LoadUint32(&self.write_connect_ok),
+		"last_error":            self.last_error,
+	}
+}
+
+func (self *Handler) Shutdown() error {
+	close(self.c)
+	return nil
+}
+
+func (self *Handler) Close() error {
+	return self.CloseWith(self.Shutdown)
 }
 
 func (self *Handler) runLoop(builder *ClientBuilder, id string,
@@ -166,18 +188,18 @@ func (self *Handler) runRead(builder *ClientBuilder) (err error) {
 
 func NewQueueHandler(builder *ClientBuilder, id, rqueue, squeue string,
 	cb func(msg Message, c chan Message)) *Handler {
-	return NewHandler(builder, id, QUEUE, rqueue, squeue, cb)
+	return NewHandler(&Base{}, builder, id, QUEUE, rqueue, squeue, cb)
 }
 
 func NewTopicHandler(builder *ClientBuilder, id, rqueue, squeue string,
 	cb func(msg Message, c chan Message)) *Handler {
-	return NewHandler(builder, id, TOPIC, rqueue, squeue, cb)
+	return NewHandler(&Base{}, builder, id, TOPIC, rqueue, squeue, cb)
 }
 
-func NewHandler(builder *ClientBuilder, id, typ, rqueue, squeue string,
+func NewHandler(base *Base, builder *ClientBuilder, id, typ, rqueue, squeue string,
 	cb func(msg Message, c chan Message)) *Handler {
 	handler := &Handler{
-		builder:        builder,
+		Base:           base,
 		Typ:            typ,
 		RecvQname:      rqueue,
 		SendQname:      squeue,
@@ -185,12 +207,184 @@ func NewHandler(builder *ClientBuilder, id, typ, rqueue, squeue string,
 		processMessage: cb}
 
 	handler.RunItInGoroutine(func() {
-		handler.runLoop(builder, id+".listener", handler.runRead)
+		handler.runLoop(builder.Clone(), id+".listener", handler.runRead)
 	})
 
 	handler.RunItInGoroutine(func() {
-		handler.runLoop(builder, id+".sender", handler.runWrite)
+		handler.runLoop(builder.Clone(), id+".sender", handler.runWrite)
 	})
 
 	return handler
+}
+
+type QueueMgr struct {
+	Base
+	Url           string
+	Qtype         string
+	Qname         string
+	qmatchType    string
+	qmatchName    string
+	shutdown      chan struct{}
+	handlers_lock sync.Mutex
+	handlers      map[string]*Handler
+	create        func(mgr *QueueMgr, name string)
+}
+
+func (self *QueueMgr) Close() error {
+	return self.CloseWith(self.InternalClose)
+}
+
+func (self *QueueMgr) InternalClose() error {
+	close(self.shutdown)
+
+	self.handlers_lock.Lock()
+	defer self.handlers_lock.Unlock()
+
+	var err error
+	for _, q := range self.handlers {
+		if e := q.Close(); e != nil {
+			err = e
+		}
+	}
+	self.handlers = map[string]*Handler{}
+	return err
+}
+
+func (self *QueueMgr) RunLoop(builder *ClientBuilder, id string,
+	cb func(builder *ClientBuilder) error) {
+	conn_err_count := 0
+	for {
+		if err := cb(builder); err != nil {
+			conn_err_count++
+
+			if conn_err_count < 5 || 0 == conn_err_count%50 {
+				log.Println("failed to connect mq server,", err)
+			} else {
+				time.Sleep(2 * time.Second)
+			}
+		} else {
+			conn_err_count = 0
+		}
+
+		if 0 != atomic.LoadInt32(&self.closed) {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func (self *QueueMgr) RunPoll() {
+	tick := time.NewTicker(1 * time.Second)
+	defer tick.Stop()
+
+	count := uint(0)
+	for 0 == atomic.LoadInt32(&self.closed) {
+		select {
+		case <-tick.C:
+			count++
+			if count < 60 || count%30 == 0 {
+				self.PollList()
+			}
+		case <-self.shutdown:
+			return
+		}
+	}
+}
+
+func (self *QueueMgr) PollList() {
+	var url string
+	if self.qmatchType == QUEUE {
+		if strings.HasSuffix(self.Url, "/") {
+			url = url + "mq/queues"
+		} else {
+			url = url + "/mq/queues"
+		}
+	} else {
+		if strings.HasSuffix(self.Url, "/") {
+			url = url + "mq/topics"
+		} else {
+			url = url + "/mq/topics"
+		}
+	}
+	res, err := http.Get(url)
+	if nil != err {
+		log.Println("[mq] list queues failed,", err)
+		return
+	}
+	defer res.Body.Close()
+
+	bs, err := ioutil.ReadAll(res.Body)
+	if nil != err {
+		log.Println("[mq] list queues failed,", err)
+		return
+	}
+
+	var queues []string
+	err = json.Unmarshal(bs, &queues)
+	if nil != err {
+		log.Println("[mq] list queues failed,", err, "\r\n\t", string(bs))
+		return
+	}
+
+	for _, queue := range queues {
+		self.create(self, queue)
+	}
+}
+
+func (self *QueueMgr) RunRead(builder *ClientBuilder) (err error) {
+	log.Println("[mq] subscribe to mq server at ", self.Qtype, self.Qname, "......")
+
+	qmatchType := []byte(self.qmatchType)
+	qmatchName := []byte(self.qmatchName)
+	err = builder.Subscribe(self.Qtype, self.Qname,
+		func(subscription *Subscription, msg Message) {
+			if MSG_DATA != msg.Command() {
+				log.Println("[mq] recv unexcepted message - ", ToCommandName(msg.Command()))
+				return
+			}
+			data := msg.Data()
+			if len(data) <= 0 {
+				return
+			}
+
+			fields := bytes.Fields(data)
+			if len(fields) != 3 {
+				return
+			}
+
+			if bytes.Equal(fields[0], []byte("new")) &&
+				bytes.Equal(fields[1], qmatchType) &&
+				bytes.HasPrefix(fields[2], qmatchName) {
+				self.create(self, string(fields[2]))
+			}
+		})
+
+	if IsConnected(err) {
+		log.Println("[mq] mq is disconnected, ", err)
+		return nil
+	}
+	return err
+}
+
+func (self *QueueMgr) CreateHandlerIfNotExists(builder *ClientBuilder, typ, name, rqueue, squeue string,
+	cb func(msg Message, c chan Message)) {
+	self.handlers_lock.Lock()
+	defer self.handlers_lock.Unlock()
+
+	if nil != self.handlers {
+		if _, ok := self.handlers[name]; ok {
+			return
+		}
+	} else {
+		self.handlers = map[string]*Handler{}
+	}
+
+	handler := NewHandler(&self.Base,
+		builder,
+		name,
+		typ,
+		rqueue, //name+".requests",
+		squeue, //name+".responses",
+		cb)
+	self.handlers[name] = handler
 }
