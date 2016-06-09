@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -217,6 +218,10 @@ func NewHandler(base *Base, builder *ClientBuilder, id, typ, rqueue, squeue stri
 	return handler
 }
 
+type HandlerObject interface {
+	io.Closer
+}
+
 type QueueMgr struct {
 	Base
 	Url           string
@@ -226,15 +231,15 @@ type QueueMgr struct {
 	qmatchName    string
 	shutdown      chan struct{}
 	handlers_lock sync.Mutex
-	handlers      map[string]*Handler
+	handlers      map[string]HandlerObject
 	create        func(mgr *QueueMgr, name string)
 }
 
 func (self *QueueMgr) Close() error {
-	return self.CloseWith(self.InternalClose)
+	return self.CloseWith(self.CloseDirect)
 }
 
-func (self *QueueMgr) InternalClose() error {
+func (self *QueueMgr) CloseDirect() error {
 	close(self.shutdown)
 
 	self.handlers_lock.Lock()
@@ -246,7 +251,7 @@ func (self *QueueMgr) InternalClose() error {
 			err = e
 		}
 	}
-	self.handlers = map[string]*Handler{}
+	self.handlers = map[string]HandlerObject{}
 	return err
 }
 
@@ -366,8 +371,7 @@ func (self *QueueMgr) RunRead(builder *ClientBuilder) (err error) {
 	return err
 }
 
-func (self *QueueMgr) CreateHandlerIfNotExists(builder *ClientBuilder, typ, name, rqueue, squeue string,
-	cb func(msg Message, c chan Message)) {
+func (self *QueueMgr) CreateHandlerIfNotExists(name string, cb func(name string) (HandlerObject, error)) {
 	self.handlers_lock.Lock()
 	defer self.handlers_lock.Unlock()
 
@@ -376,17 +380,15 @@ func (self *QueueMgr) CreateHandlerIfNotExists(builder *ClientBuilder, typ, name
 			return
 		}
 	} else {
-		self.handlers = map[string]*Handler{}
+		self.handlers = map[string]HandlerObject{}
 	}
 
-	handler := NewHandler(&self.Base,
-		builder,
-		name,
-		typ,
-		rqueue, //name+".requests",
-		squeue, //name+".responses",
-		cb)
-	self.handlers[name] = handler
+	obj, err := cb(name)
+	if err != nil {
+		log.Println(err)
+	} else {
+		self.handlers[name] = obj
+	}
 }
 
 func NewQueueMgr(url, typ, qname, matchType, matchName string, cb func(mgr *QueueMgr, name string)) *QueueMgr {
