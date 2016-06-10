@@ -54,62 +54,64 @@ func (self *fastEngine) Close() error {
 }
 
 func (self *fastEngine) On(conn net.Conn) {
-	err := fasthttp.ServeConn(conn, func(ctx *fasthttp.RequestCtx) {
-		url_path := ctx.Path()
-		if nil != self.prefix {
-			if !bytes.HasPrefix(url_path, self.prefix) {
-				if self.is_redirect {
-					ctx.Redirect(self.redirect_url, fasthttp.StatusMovedPermanently)
+	go func() {
+		err := fasthttp.ServeConn(conn, func(ctx *fasthttp.RequestCtx) {
+			url_path := ctx.Path()
+			if nil != self.prefix {
+				if !bytes.HasPrefix(url_path, self.prefix) {
+					if self.is_redirect {
+						ctx.Redirect(self.redirect_url, fasthttp.StatusMovedPermanently)
+						return
+					}
+					ctx.NotFound()
 					return
 				}
-				ctx.NotFound()
-				return
+				url_path = bytes.TrimPrefix(url_path, self.prefix)
 			}
-			url_path = bytes.TrimPrefix(url_path, self.prefix)
-		}
 
-		if bytes.Equal(url_path, []byte("/mq/queues")) {
-			self.queuesIndex(ctx)
-		} else if bytes.Equal(url_path, []byte("/mq/topics")) {
-			self.topicsIndex(ctx)
-		} else if bytes.Equal(url_path, []byte("/mq/clients")) {
-			self.clientsIndex(ctx)
-		} else if bytes.HasPrefix(url_path, []byte("/mq/queues/")) {
-			url_path = bytes.TrimPrefix(url_path, []byte("/mq/queues/"))
-			if len(url_path) == 0 {
+			if bytes.Equal(url_path, []byte("/mq/queues")) {
 				self.queuesIndex(ctx)
-				return
-			}
+			} else if bytes.Equal(url_path, []byte("/mq/topics")) {
+				self.topicsIndex(ctx)
+			} else if bytes.Equal(url_path, []byte("/mq/clients")) {
+				self.clientsIndex(ctx)
+			} else if bytes.HasPrefix(url_path, []byte("/mq/queues/")) {
+				url_path = bytes.TrimPrefix(url_path, []byte("/mq/queues/"))
+				if len(url_path) == 0 {
+					self.queuesIndex(ctx)
+					return
+				}
 
-			self.doHandler(ctx, bytes.TrimPrefix(url_path, []byte("/mq/queues/")),
-				func(name []byte) *mq_server.Consumer {
-					return self.srv.CreateQueueIfNotExists(string(name)).ListenOn()
-				},
-				func(name []byte) mq_server.Producer {
-					return self.srv.CreateQueueIfNotExists(string(name))
-				})
-		} else if bytes.HasPrefix(url_path, []byte("/mq/topics/")) {
-			url_path = bytes.TrimPrefix(url_path, []byte("/mq/topics/"))
-			if len(url_path) == 0 {
-				self.queuesIndex(ctx)
-				return
-			}
+				self.doHandler(ctx, bytes.TrimPrefix(url_path, []byte("/mq/queues/")),
+					func(name []byte) *mq_server.Consumer {
+						return self.srv.CreateQueueIfNotExists(string(name)).ListenOn()
+					},
+					func(name []byte) mq_server.Producer {
+						return self.srv.CreateQueueIfNotExists(string(name))
+					})
+			} else if bytes.HasPrefix(url_path, []byte("/mq/topics/")) {
+				url_path = bytes.TrimPrefix(url_path, []byte("/mq/topics/"))
+				if len(url_path) == 0 {
+					self.queuesIndex(ctx)
+					return
+				}
 
-			self.doHandler(ctx, bytes.TrimPrefix(url_path, []byte("/mq/topics/")),
-				func(name []byte) *mq_server.Consumer {
-					return self.srv.CreateTopicIfNotExists(string(name)).ListenOn()
-				},
-				func(name []byte) mq_server.Producer {
-					return self.srv.CreateTopicIfNotExists(string(name))
-				})
-		} else {
-			self.handler(ctx)
+				self.doHandler(ctx, bytes.TrimPrefix(url_path, []byte("/mq/topics/")),
+					func(name []byte) *mq_server.Consumer {
+						return self.srv.CreateTopicIfNotExists(string(name)).ListenOn()
+					},
+					func(name []byte) mq_server.Producer {
+						return self.srv.CreateTopicIfNotExists(string(name))
+					})
+			} else {
+				self.handler(ctx)
+			}
+		})
+		if err != nil {
+			conn.Close()
+			log.Println(err)
 		}
-	})
-	if err != nil {
-		conn.Close()
-		log.Println(err)
-	}
+	}()
 }
 
 func (self *fastEngine) doHandler(ctx *fasthttp.RequestCtx,
