@@ -47,6 +47,7 @@ func (self *Client) runWrite(c chan interface{}) {
 	defer tick.Stop()
 
 	var msg_ch chan mq_client.Message
+	//var is_pub bool
 
 	for 0 == atomic.LoadInt32(&self.closed) &&
 		0 == atomic.LoadInt32(&self.srv.is_stopped) {
@@ -57,6 +58,9 @@ func (self *Client) runWrite(c chan interface{}) {
 			}
 			switch cmd := v.(type) {
 			case *errorCommand:
+				//if is_pub {
+				//	return nil
+				//}
 				if err := mq_client.SendFull(conn, cmd.msg.ToBytes()); err != nil {
 					if 0 == atomic.LoadInt32(&self.closed) {
 						self.srv.logf("[%s - %s] fail to send error message, %s", self.id(), self.remoteAddr, err)
@@ -70,6 +74,7 @@ func (self *Client) runWrite(c chan interface{}) {
 				}
 
 				msg_ch = cmd.ch
+				//is_pub = false
 			case *pubCommand:
 				msg_ch = nil
 
@@ -77,6 +82,7 @@ func (self *Client) runWrite(c chan interface{}) {
 					self.srv.logf("[%s - %s] fail to send ack message, %s", self.id(), self.remoteAddr, err)
 					return
 				}
+				//is_pub = true
 
 			case *closeCommand:
 				if cmd.closer != nil {
@@ -86,6 +92,7 @@ func (self *Client) runWrite(c chan interface{}) {
 				}
 
 				msg_ch = nil
+				//is_pub = false
 				if err := mq_client.SendFull(conn, mq_client.MSG_ACK_BYTES); err != nil {
 					self.srv.logf("[%s - %s] fail to send ack message, %s", self.id(), self.remoteAddr, err)
 					return
@@ -249,7 +256,8 @@ func (ctx *execCtx) execute(msg mq_client.Message) bool {
 		ctx.c <- &subCommand{ch: ctx.consumer.C}
 		return true
 	default:
-		ctx.c <- &errorCommand{msg: mq_client.BuildErrorMessage(fmt.Sprintf("unknown command - %v.", msg.Command()))}
+		ctx.srv.logf("ERROR: client(%s) unknown command - %s", ctx.client.remoteAddr, mq_client.ToCommandName(msg.Command()))
+		ctx.c <- &errorCommand{msg: mq_client.BuildErrorMessage(fmt.Sprintf("unknown command - %v.", mq_client.ToCommandName(msg.Command())))}
 		return true // don't exit, write thread will exit when recv error.
 	}
 }

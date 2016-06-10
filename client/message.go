@@ -274,6 +274,12 @@ func (self *MeesageBuilder) Build() Message {
 	return BuildMessage(self.buffer)
 }
 
+func BuildMessageWith(cmd byte, buffer *bytes.Buffer) Message {
+	bs := buffer.Bytes()
+	bs[0] = cmd
+	return BuildMessage(bs)
+}
+
 func BuildMessage(buffer []byte) Message {
 	length := len(buffer) - HEAD_LENGTH
 	//if length < 65535 {

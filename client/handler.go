@@ -101,6 +101,7 @@ func (self *Handler) Stats() map[string]interface{} {
 
 func (self *Handler) Shutdown() error {
 	close(self.c)
+	log.Println("[", self.Typ, self.RecvQname, self.SendQname, "] handler is closed")
 	return nil
 }
 
@@ -108,10 +109,8 @@ func (self *Handler) Close() error {
 	return self.CloseWith(self.Shutdown)
 }
 
-func (self *Handler) runLoop(builder *ClientBuilder, id string,
+func (self *Handler) runLoop(builder *ClientBuilder,
 	cb func(builder *ClientBuilder) error) {
-
-	builder.Id(id)
 
 	conn_err_count := 0
 	for {
@@ -151,10 +150,26 @@ func (self *Handler) runWrite(builder *ClientBuilder) (err error) {
 
 	atomic.AddUint32(&self.write_connect_ok, 1)
 
-	for msg := range self.c {
-		if err = w.Send(msg); err != nil {
-			log.Println("[mq] ["+self.SendQname+"] send message fialed,", err)
-			return nil
+	tick := time.NewTicker(10 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case msg, ok := <-self.c:
+			if !ok {
+				return nil
+			}
+			if err = w.Send(msg.ToBytes()); err != nil {
+				log.Println("[mq] ["+self.SendQname+"] send message fialed,", err)
+				return nil
+			}
+		case <-tick.C:
+			if len(self.c) > 0 {
+				break
+			}
+			if err = w.Send(MSG_NOOP_BYTES); err != nil {
+				log.Println("[mq] ["+self.SendQname+"] send message fialed,", err)
+				return nil
+			}
 		}
 	}
 
@@ -171,6 +186,12 @@ func (self *Handler) runRead(builder *ClientBuilder) (err error) {
 
 	err = builder.Subscribe(self.Typ, self.RecvQname,
 		func(subscription *Subscription, msg Message) {
+			if MSG_NOOP == msg.Command() {
+				if 0 != atomic.LoadInt32(&self.closed) {
+					subscription.Stop()
+				}
+				return
+			}
 			if MSG_DATA != msg.Command() {
 				log.Println("[mq] ["+self.RecvQname+"] recv unexcepted message - ", ToCommandName(msg.Command()))
 				return
@@ -208,11 +229,11 @@ func NewHandler(base *Base, builder *ClientBuilder, id, typ, rqueue, squeue stri
 		processMessage: cb}
 
 	handler.RunItInGoroutine(func() {
-		handler.runLoop(builder.Clone(), id+".listener", handler.runRead)
+		handler.runLoop(builder.Clone().Id(id+".listener"), handler.runRead)
 	})
 
 	handler.RunItInGoroutine(func() {
-		handler.runLoop(builder.Clone(), id+".sender", handler.runWrite)
+		handler.runLoop(builder.Clone().Id(id+".sender"), handler.runWrite)
 	})
 
 	return handler
@@ -252,10 +273,12 @@ func (self *QueueMgr) CloseDirect() error {
 		}
 	}
 	self.handlers = map[string]HandlerObject{}
+
+	log.Println("[", self.Qtype, self.Qname, self.qmatchType, self.qmatchName, "] queueMgr is closed")
 	return err
 }
 
-func (self *QueueMgr) RunLoop(builder *ClientBuilder, id string,
+func (self *QueueMgr) RunLoop(builder *ClientBuilder,
 	cb func(builder *ClientBuilder) error) {
 	conn_err_count := 0
 	for {
@@ -300,15 +323,15 @@ func (self *QueueMgr) PollList() {
 	var url string
 	if self.qmatchType == QUEUE {
 		if strings.HasSuffix(self.Url, "/") {
-			url = url + "mq/queues"
+			url = self.Url + "mq/queues"
 		} else {
-			url = url + "/mq/queues"
+			url = self.Url + "/mq/queues"
 		}
 	} else {
 		if strings.HasSuffix(self.Url, "/") {
-			url = url + "mq/topics"
+			url = self.Url + "mq/topics"
 		} else {
-			url = url + "/mq/topics"
+			url = self.Url + "/mq/topics"
 		}
 	}
 	res, err := http.Get(url)
@@ -332,7 +355,9 @@ func (self *QueueMgr) PollList() {
 	}
 
 	for _, queue := range queues {
-		self.create(self, queue)
+		if strings.HasPrefix(queue, self.qmatchName) {
+			self.create(self, queue)
+		}
 	}
 }
 
@@ -343,6 +368,12 @@ func (self *QueueMgr) RunRead(builder *ClientBuilder) (err error) {
 	qmatchName := []byte(self.qmatchName)
 	err = builder.Subscribe(self.Qtype, self.Qname,
 		func(subscription *Subscription, msg Message) {
+			if MSG_NOOP == msg.Command() {
+				if 0 != atomic.LoadInt32(&self.closed) {
+					subscription.Stop()
+				}
+				return
+			}
 			if MSG_DATA != msg.Command() {
 				log.Println("[mq] recv unexcepted message - ", ToCommandName(msg.Command()))
 				return
