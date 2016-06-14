@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"net"
+	"time"
 )
 
 const (
@@ -209,6 +210,8 @@ func connect(network, address string) (net.Conn, error) {
 	if err := SendMagic(conn); err != nil {
 		return nil, err
 	}
+	// prevent blocked while connect to incorrect server.
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	return conn, ReadMagic(conn)
 }
 
