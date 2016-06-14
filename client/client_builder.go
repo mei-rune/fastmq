@@ -179,6 +179,7 @@ func (self *ClientBuilder) subscribe(msg Message, cb func(cli *Subscription, msg
 
 	err = exec(conn, msg)
 	if err != nil {
+		conn.Close()
 		return err
 	}
 
@@ -208,11 +209,16 @@ func connect(network, address string) (net.Conn, error) {
 		return nil, err
 	}
 	if err := SendMagic(conn); err != nil {
+		conn.Close()
 		return nil, err
 	}
 	// prevent blocked while connect to incorrect server.
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	return conn, ReadMagic(conn)
+	if err = ReadMagic(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 func sendId(conn net.Conn, name string) error {
