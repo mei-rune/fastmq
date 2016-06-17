@@ -218,6 +218,8 @@ func connect(network, address string) (net.Conn, error) {
 		conn.Close()
 		return nil, err
 	}
+
+	conn.SetReadDeadline(time.Time{})
 	return conn, nil
 }
 
