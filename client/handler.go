@@ -348,7 +348,7 @@ func (self *QueueMgr) PollList() {
 	}
 
 	if res.StatusCode != http.StatusOK {
-		log.Println("[mq] list queues failed,", err, "\r\n\t", string(bs))
+		log.Println("[mq] list queues failed:\r\n\t", string(bs))
 		return
 	}
 
