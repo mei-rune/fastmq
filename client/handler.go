@@ -347,6 +347,11 @@ func (self *QueueMgr) PollList() {
 		return
 	}
 
+	if res.StatusCode != http.StatusOK {
+		log.Println("[mq] list queues failed:\r\n\t", string(bs))
+		return
+	}
+
 	var queues []string
 	err = json.Unmarshal(bs, &queues)
 	if nil != err {

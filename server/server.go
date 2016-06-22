@@ -214,15 +214,17 @@ func (self *Server) runLoop(listener net.Listener) {
 }
 
 func (self *Server) handleConnection(clientConn net.Conn) {
-	remoteAddr := clientConn.RemoteAddr().String()
-
 	self.RunItInGoroutine(func() {
+		remoteAddr := clientConn.RemoteAddr().String()
+
 		////////////////////// begin check magic bytes  //////////////////////////
 		buf := make([]byte, len(mq_client.HEAD_MAGIC))
 		_, err := io.ReadFull(clientConn, buf)
 		if err != nil {
-			self.logf("ERROR: client(%s) failed to read protocol version - %s",
-				remoteAddr, err)
+			if io.EOF != err {
+				self.logf("ERROR: client(%s) failed to read protocol version - %s",
+					remoteAddr, err)
+			}
 			clientConn.Close()
 			return
 		}

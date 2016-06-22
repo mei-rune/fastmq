@@ -59,7 +59,12 @@ func (self *standardEngine) Close() error {
 }
 
 func (self *standardEngine) On(conn net.Conn) {
-	self.listener.c <- conn
+	select {
+	case self.listener.c <- conn:
+	default:
+		conn.Close()
+		self.srv.log("listen pool is overflow.")
+	}
 }
 
 func (self *standardEngine) createListener() net.Listener {
@@ -67,7 +72,7 @@ func (self *standardEngine) createListener() net.Listener {
 		self.listener = &Listener{
 			addr:   self.srv.Addr(),
 			closer: nil,
-			c:      make(chan net.Conn, 100),
+			c:      make(chan net.Conn, 50),
 		}
 	}
 	return self.listener
