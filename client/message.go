@@ -22,10 +22,11 @@ const MAGIC_LENGTH = 4
 const SYS_EVENTS = "_sys.events"
 
 var (
-	HEAD_MAGIC      = []byte{'a', 'a', 'v', '1'}
-	MSG_NOOP_BYTES  = []byte{MSG_NOOP, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
-	MSG_ACK_BYTES   = []byte{MSG_ACK, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
-	MSG_CLOSE_BYTES = []byte{MSG_CLOSE, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
+	HEAD_MAGIC                  = []byte{'a', 'a', 'v', '1'}
+	MSG_DATA_EMPTY_HEADER_BYTES = []byte{MSG_NOOP, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
+	MSG_NOOP_BYTES              = []byte{MSG_NOOP, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
+	MSG_ACK_BYTES               = []byte{MSG_ACK, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
+	MSG_CLOSE_BYTES             = []byte{MSG_CLOSE, ' ', ' ', ' ', ' ', ' ', '0', '\n'}
 
 	ErrTimeout           = errors.New("timeout")
 	ErrAlreadyClosed     = errors.New("already closed.")
