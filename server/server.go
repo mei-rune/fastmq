@@ -353,12 +353,12 @@ func NewServer(opts *Options) (*Server, error) {
 	}
 
 	srv.watcher.topic = DummyProducer
-	srv.watcher.topic = srv.CreateTopicIfNotExists(mq_client.SYS_EVENTS)
 	if opts.Watch != nil {
 		srv.watcher.watch = opts.Watch
 	} else {
 		srv.watcher.watch = DummyWatcher
 	}
+	srv.watcher.topic = srv.CreateTopicIfNotExists(mq_client.SYS_EVENTS)
 
 	srv.RunItInGoroutine(func() {
 		srv.runLoop(listener)
