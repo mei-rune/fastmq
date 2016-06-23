@@ -170,6 +170,9 @@ func (ctx *execCtx) execute(msg mq_client.Message) bool {
 	defer ctx.srv.catchThrow("[" + ctx.client.name + "-" + ctx.client.remoteAddr + "] [" + mq_client.ToCommandName(msg.Command()) + "]")
 
 	switch msg.Command() {
+	case mq_client.MSG_KILL:
+
+		return true
 	case mq_client.MSG_NOOP:
 		return true
 	case mq_client.MSG_ID:
@@ -193,15 +196,12 @@ func (ctx *execCtx) execute(msg mq_client.Message) bool {
 		}
 		ctx.c <- closer
 
-		// fmt.Println("close ", ctx.id)
 		if err := ctx.Reset(); err != nil {
 			ctx.c <- &errorCommand{msg: mq_client.BuildErrorMessage("failed to reset context, " + err.Error())}
 		}
 
 		return true
 	case mq_client.MSG_DATA:
-		//ctx.id = binary.BigEndian.Uint32(msg.Data())
-
 		if ctx.producer == nil {
 			ctx.c <- &errorCommand{msg: mq_client.BuildErrorMessage("state error.")}
 			return true
@@ -229,7 +229,7 @@ func (ctx *execCtx) execute(msg mq_client.Message) bool {
 			return true
 		}
 
-		ctx.producer = queue
+		ctx.producer = queue.Connect()
 		ctx.c <- &pubCommand{}
 		return true
 	case mq_client.MSG_SUB:

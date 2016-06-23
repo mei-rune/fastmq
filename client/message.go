@@ -48,6 +48,7 @@ const (
 	MSG_ACK   = 'a'
 	MSG_NOOP  = 'n'
 	MSG_CLOSE = 'c'
+	MSG_KILL  = 'k'
 )
 
 func ToCommandName(cmd byte) string {

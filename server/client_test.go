@@ -175,7 +175,7 @@ func TestClientSubscribeMessage(t *testing.T) {
 			pingMessage := mq_client.NewMessageWriter(mq_client.MSG_DATA, 10).Append([]byte("aa")).Build()
 			go func() {
 				for i := 0; i < 100; i++ {
-					channel.Send(pingMessage)
+					channel.Connect().Send(pingMessage)
 				}
 			}()
 

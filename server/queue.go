@@ -8,6 +8,28 @@ import (
 	mq_client "github.com/runner-mei/fastmq/client"
 )
 
+type Anchor struct {
+	client *Client
+	proxy  Producer
+}
+
+func (self *Anchor) Close() error {
+	//return self.producer.Close()
+	return nil
+}
+
+func (self *Anchor) Send(msg mq_client.Message) error {
+	return self.proxy.Send(msg)
+}
+
+func (self *Anchor) SendTimeout(msg mq_client.Message, timeout time.Duration) error {
+	return self.proxy.SendTimeout(msg, timeout)
+}
+
+func (self *Anchor) Kill() error {
+	return self.client.Close()
+}
+
 type Consumer struct {
 	closed       int32
 	topic        *Topic
@@ -43,7 +65,7 @@ type Producer interface {
 }
 
 type Channel interface {
-	Producer
+	Connect() Producer
 
 	ListenOn() *Consumer
 }
@@ -79,6 +101,10 @@ func (self *Queue) SendTimeout(msg mq_client.Message, timeout time.Duration) err
 
 func (self *Queue) ListenOn() *Consumer {
 	return &self.consumer
+}
+
+func (self *Queue) Connect() Producer {
+	return self
 }
 
 func creatQueue(srv *Server, name string, capacity int) *Queue {
@@ -123,6 +149,10 @@ func (self *Topic) Send(msg mq_client.Message) error {
 
 func (self *Topic) SendTimeout(msg mq_client.Message, timeout time.Duration) error {
 	return self.Send(msg)
+}
+
+func (self *Topic) Connect() Producer {
+	return self
 }
 
 func (self *Topic) ListenOn() *Consumer {
