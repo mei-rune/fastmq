@@ -25,6 +25,7 @@ type Options struct {
 	HttpRedirectUrl string
 	HttpHandler     interface{}
 
+	Watch  Watcher
 	Logger *log.Logger
 }
 
