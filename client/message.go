@@ -194,7 +194,7 @@ func (self *MessageReader) nextMessage() (bool, Message, error) {
 	msg_residue := msg_total_length - length
 	buf_reserve := len(self.buffer) - self.end
 	if msg_residue > buf_reserve {
-		if msg_total_length > (MAX_MESSAGE_LENGTH + HEAD_LENGTH) {
+		if msg_total_length > 2*(MAX_MESSAGE_LENGTH+HEAD_LENGTH) {
 			return false, nil, fmt.Errorf("ensureCapacity failed: %v", msg_total_length)
 		}
 
