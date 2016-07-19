@@ -433,7 +433,6 @@ func (self *FixedMessageReader) ReadMessage() (Message, error) {
 				return nil, err
 			}
 			self.conn = &errReader{err: err}
-
 		}
 		self.length += n
 		if self.length < HEAD_LENGTH {
@@ -457,10 +456,10 @@ func (self *FixedMessageReader) ReadMessage() (Message, error) {
 	}
 
 	_, err = io.ReadFull(self.conn, bs[self.length:message_length])
+	self.length = 0
 	if err != nil {
 		return nil, err
 	}
 
-	self.length = 0
 	return Message(bs), nil
 }
