@@ -38,6 +38,12 @@ func init() {
 
 func MakeBytes(size int) []byte {
 	switch {
+	case size <= 64:
+		return bytes_64b.Get().([]byte)[:size]
+	case size <= 128:
+		return bytes_128b.Get().([]byte)[:size]
+	case size <= 256:
+		return bytes_256b.Get().([]byte)[:size]
 	case size <= 512-48:
 		return bytes_512b.Get().([]byte)[:size]
 	case size <= 1024-48:
