@@ -3,6 +3,9 @@ package client
 import "sync"
 
 var (
+	bytes_64b  sync.Pool
+	bytes_128b sync.Pool
+	bytes_256b sync.Pool
 	bytes_512b sync.Pool
 	bytes_1k   sync.Pool
 	bytes_2k   sync.Pool
@@ -10,6 +13,15 @@ var (
 )
 
 func init() {
+	bytes_64b.New = func() interface{} {
+		return make([]byte, 64)
+	}
+	bytes_128b.New = func() interface{} {
+		return make([]byte, 128)
+	}
+	bytes_256b.New = func() interface{} {
+		return make([]byte, 256)
+	}
 	bytes_512b.New = func() interface{} {
 		return make([]byte, 512-48)
 	}
