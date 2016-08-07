@@ -19,6 +19,7 @@ type Options struct {
 	MsgBufferSize    int
 	MsgTimeout       time.Duration
 	MsgQueueCapacity int
+	NoopInterval     time.Duration
 
 	HttpEnabled     bool
 	HttpPrefix      string
@@ -58,6 +59,10 @@ func (self *Options) ensureDefault() {
 
 	if self.HttpHandler != nil {
 		self.HttpEnabled = true
+	}
+
+	if self.NoopInterval == 0 {
+		self.NoopInterval = 1 * time.Minute
 	}
 
 	if self.Logger == nil {

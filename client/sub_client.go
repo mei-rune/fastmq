@@ -32,7 +32,7 @@ func (self *Subscription) Stop() error {
 }
 
 func (self *Subscription) subscribe(bufSize int, cb func(cli *Subscription, msg Message)) error {
-	var reader MessageReader
+	var reader BufferedMessageReader
 	var recvMessage Message
 	var err error
 

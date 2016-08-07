@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func assertEq(t *testing.T, reader *MessageReader, input string, excepted Message) {
+func assertEq(t *testing.T, reader *BufferedMessageReader, input string, excepted Message) {
 	msg, err := reader.ReadMessage()
 	if nil != err {
 		t.Error("[", input, "]", err)

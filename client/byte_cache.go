@@ -3,6 +3,9 @@ package client
 import "sync"
 
 var (
+	bytes_64b  sync.Pool
+	bytes_128b sync.Pool
+	bytes_256b sync.Pool
 	bytes_512b sync.Pool
 	bytes_1k   sync.Pool
 	bytes_2k   sync.Pool
@@ -10,6 +13,15 @@ var (
 )
 
 func init() {
+	bytes_64b.New = func() interface{} {
+		return make([]byte, 64)
+	}
+	bytes_128b.New = func() interface{} {
+		return make([]byte, 128)
+	}
+	bytes_256b.New = func() interface{} {
+		return make([]byte, 256)
+	}
 	bytes_512b.New = func() interface{} {
 		return make([]byte, 512-48)
 	}
@@ -26,13 +38,19 @@ func init() {
 
 func MakeBytes(size int) []byte {
 	switch {
-	case size <= 512-46:
+	case size <= 64:
+		return bytes_64b.Get().([]byte)[:size]
+	case size <= 128:
+		return bytes_128b.Get().([]byte)[:size]
+	case size <= 256:
+		return bytes_256b.Get().([]byte)[:size]
+	case size <= 512-48:
 		return bytes_512b.Get().([]byte)[:size]
-	case size <= 1024-46:
+	case size <= 1024-48:
 		return bytes_1k.Get().([]byte)[:size]
-	case size <= 2048-46:
+	case size <= 2048-48:
 		return bytes_2k.Get().([]byte)[:size]
-	case size <= 4096-46:
+	case size <= 4096-48:
 		return bytes_4k.Get().([]byte)[:size]
 	}
 	return make([]byte, size)

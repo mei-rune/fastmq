@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -92,6 +93,10 @@ func (self Message) ToBytes() []byte {
 	return self
 }
 
+type MessageReader interface {
+	ReadMessage() (Message, error)
+}
+
 type errReader struct {
 	err error
 }
@@ -100,7 +105,7 @@ func (self *errReader) Read(bs []byte) (int, error) {
 	return 0, self.err
 }
 
-type MessageReader struct {
+type BufferedMessageReader struct {
 	conn   io.Reader
 	buffer []byte
 	start  int
@@ -109,11 +114,11 @@ type MessageReader struct {
 	buffer_size int
 }
 
-func (self *MessageReader) DataLength() int {
+func (self *BufferedMessageReader) DataLength() int {
 	return self.end - self.start
 }
 
-func (self *MessageReader) Init(conn io.Reader, size int) {
+func (self *BufferedMessageReader) Init(conn io.Reader, size int) {
 	self.conn = conn
 	self.buffer = MakeBytes(size)
 	self.start = 0
@@ -149,7 +154,7 @@ func readLength(bs []byte) (int, error) {
 	return length, nil
 }
 
-func (self *MessageReader) ensureCapacity(size int) {
+func (self *BufferedMessageReader) ensureCapacity(size int) {
 	//fmt.Println("ensureCapacity", size, self.buffer_size)
 	if self.buffer_size > size {
 		size = self.buffer_size
@@ -162,7 +167,7 @@ func (self *MessageReader) ensureCapacity(size int) {
 	//fmt.Println(len(tmp))
 }
 
-func (self *MessageReader) nextMessage() (bool, Message, error) {
+func (self *BufferedMessageReader) nextMessage() (bool, Message, error) {
 	length := self.end - self.start
 	if length < HEAD_LENGTH {
 		buf_reserve := len(self.buffer) - self.end
@@ -193,12 +198,16 @@ func (self *MessageReader) nextMessage() (bool, Message, error) {
 	msg_residue := msg_total_length - length
 	buf_reserve := len(self.buffer) - self.end
 	if msg_residue > buf_reserve {
+		if msg_total_length > 2*(MAX_MESSAGE_LENGTH+HEAD_LENGTH) {
+			return false, nil, fmt.Errorf("ensureCapacity failed: %v", msg_total_length)
+		}
+
 		self.ensureCapacity(msg_total_length)
 	}
 	return false, nil, nil
 }
 
-func (self *MessageReader) ReadMessage() (Message, error) {
+func (self *BufferedMessageReader) ReadMessage() (Message, error) {
 	ok, msg, err := self.nextMessage()
 	if ok {
 		return msg, nil
@@ -223,8 +232,8 @@ func (self *MessageReader) ReadMessage() (Message, error) {
 	return nil, err
 }
 
-func NewMessageReader(conn io.Reader, size int) *MessageReader {
-	return &MessageReader{
+func NewMessageReader(conn io.Reader, size int) *BufferedMessageReader {
+	return &BufferedMessageReader{
 		conn:        conn,
 		buffer:      MakeBytes(size),
 		start:       0,
@@ -407,4 +416,50 @@ func ReadMagic(r io.Reader) error {
 		return ErrMagicNumber
 	}
 	return nil
+}
+
+type FixedMessageReader struct {
+	conn   io.Reader
+	buffer [2 * HEAD_LENGTH]byte
+	length int
+}
+
+func (self *FixedMessageReader) ReadMessage() (Message, error) {
+	//if self.stage == 0 {
+	if self.length < HEAD_LENGTH {
+		n, err := self.conn.Read(self.buffer[self.length:])
+		if err != nil {
+			if n <= 0 {
+				return nil, err
+			}
+			self.conn = &errReader{err: err}
+		}
+		self.length += n
+		if self.length < HEAD_LENGTH {
+			return nil, err
+		}
+	}
+
+	msg_data_length, err := readLength(self.buffer[2:])
+	if err != nil {
+		return nil, err
+	}
+
+	bs := MakeBytes(msg_data_length + HEAD_LENGTH)
+	//}
+
+	message_length := (msg_data_length + HEAD_LENGTH)
+	if message_length <= 2*HEAD_LENGTH {
+		copy(bs, self.buffer[:message_length])
+		self.length -= message_length
+		return Message(bs), nil
+	}
+
+	_, err = io.ReadFull(self.conn, bs[self.length:message_length])
+	self.length = 0
+	if err != nil {
+		return nil, err
+	}
+
+	return Message(bs), nil
 }

@@ -43,7 +43,7 @@ func (self *Client) runWrite(c chan interface{}) {
 
 	conn := self.conn
 
-	tick := time.NewTicker(1 * time.Minute)
+	tick := time.NewTicker(self.srv.options.NoopInterval)
 	defer tick.Stop()
 
 	var msg_ch chan mq_client.Message
