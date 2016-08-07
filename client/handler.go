@@ -56,7 +56,9 @@ func (self *Base) CatchThrow(err *error) {
 
 		errMsg := buffer.String()
 		log.Println(errMsg)
-		*err = errors.New(errMsg)
+		if err != nil {
+			*err = errors.New(errMsg)
+		}
 	}
 }
 
@@ -407,13 +409,13 @@ func (self *QueueMgr) RunRead(builder *ClientBuilder) (err error) {
 	return err
 }
 
-func (self *QueueMgr) CreateHandlerIfNotExists(name string, cb func(name string) (HandlerObject, error)) {
+func (self *QueueMgr) CreateHandlerIfNotExists(name string, cb func(name string) (HandlerObject, error)) error {
 	self.handlers_lock.Lock()
 	defer self.handlers_lock.Unlock()
 
 	if nil != self.handlers {
 		if _, ok := self.handlers[name]; ok {
-			return
+			return nil
 		}
 	} else {
 		self.handlers = map[string]HandlerObject{}
@@ -421,9 +423,10 @@ func (self *QueueMgr) CreateHandlerIfNotExists(name string, cb func(name string)
 
 	obj, err := cb(name)
 	if err != nil {
-		log.Println(err)
+		return err
 	} else {
 		self.handlers[name] = obj
+		return nil
 	}
 }
 
