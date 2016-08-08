@@ -38,6 +38,7 @@ var (
 	ErrMagicNumber       = errors.New("magic number is error.")
 	ErrLengthExceed      = errors.New("message length is exceed.")
 	ErrLengthNotDigit    = errors.New("length field of message isn't number.")
+	ErrQueueFull         = errors.New("queue is full.")
 )
 
 const (

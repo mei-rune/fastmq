@@ -89,6 +89,15 @@ func (self *Queue) Send(msg mq_client.Message) error {
 }
 
 func (self *Queue) SendTimeout(msg mq_client.Message, timeout time.Duration) error {
+	if timeout == 0 {
+		select {
+		case self.C <- msg:
+			return nil
+		default:
+			return mq_client.ErrQueueFull
+		}
+	}
+
 	timer := time.NewTimer(timeout)
 	select {
 	case self.C <- msg:
@@ -148,7 +157,51 @@ func (self *Topic) Send(msg mq_client.Message) error {
 }
 
 func (self *Topic) SendTimeout(msg mq_client.Message, timeout time.Duration) error {
-	return self.Send(msg)
+	var channels []*Consumer
+
+	var timer *time.Timer
+	if timeout > 0 {
+		timer = time.NewTimer(timeout)
+		defer timer.Stop()
+	}
+
+	func() {
+		self.channels_lock.RLock()
+		defer self.channels_lock.RUnlock()
+
+		for _, consumer := range self.channels {
+			select {
+			case consumer.C <- msg:
+				consumer.add()
+			default:
+				channels = append(channels, consumer)
+			}
+		}
+	}()
+
+	if timeout >= 0 {
+		return nil
+	}
+
+	for idx, consumer := range channels {
+		select {
+		case consumer.C <- msg:
+			consumer.add()
+		case <-timer.C:
+			channels = channels[idx+1:]
+			goto skip_ff
+		}
+	}
+
+skip_ff:
+	for _, consumer := range channels {
+		select {
+		case consumer.C <- msg:
+			consumer.add()
+		default:
+		}
+	}
+	return nil
 }
 
 func (self *Topic) Connect() Producer {
