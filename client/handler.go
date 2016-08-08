@@ -56,7 +56,7 @@ func (self *Base) CatchThrow(err *error) {
 
 		errMsg := buffer.String()
 		log.Println(errMsg)
-		if nil != err {
+		if err != nil {
 			*err = errors.New(errMsg)
 		}
 	}
