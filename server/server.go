@@ -158,7 +158,7 @@ func (self *Server) logf(format string, args ...interface{}) {
 	self.options.Logger.Printf(format, args...)
 }
 
-func (self *Server) catchThrow(ctx string) {
+func (self *Server) catchThrow(ctx string, cb func()) {
 	if e := recover(); nil != e {
 		var buffer bytes.Buffer
 		buffer.WriteString(fmt.Sprintf("[panic] %s %v", ctx, e))
@@ -173,6 +173,10 @@ func (self *Server) catchThrow(ctx string) {
 			} else {
 				buffer.WriteString(fmt.Sprintf("    %s:%d\r\n", file, line))
 			}
+		}
+
+		if cb != nil {
+			cb()
 		}
 		self.logf(buffer.String())
 	}
@@ -250,7 +254,7 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 			conn:       clientConn,
 		}
 
-		defer self.catchThrow("[" + remoteAddr + "]")
+		defer self.catchThrow("["+remoteAddr+"]", nil)
 
 		self.clients_lock.Lock()
 		el := self.clients.PushBack(client)
@@ -266,7 +270,7 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 
 		ch := make(chan interface{}, 10)
 		self.RunItInGoroutine(func() {
-			defer self.catchThrow("[" + remoteAddr + "]")
+			defer self.catchThrow("["+remoteAddr+"]", nil)
 
 			client.runWrite(ch)
 			client.Close()
@@ -275,6 +279,40 @@ func (self *Server) handleConnection(clientConn net.Conn) {
 		client.runRead(ch)
 		close(ch)
 	})
+}
+
+func (self *Server) KillQueueIfExists(name string) {
+	self.queues_lock.Lock()
+	queue, ok := self.queues[name]
+	if ok {
+		delete(self.queues, name)
+	}
+	self.queues_lock.Unlock()
+	queue.Close()
+}
+
+func (self *Server) KillTopicIfExists(name string) {
+	self.topics_lock.RLock()
+	topic, ok := self.topics[name]
+	if ok {
+		delete(self.topics, name)
+	}
+	self.topics_lock.RUnlock()
+	topic.Close()
+}
+
+func (self *Server) GetQueueIfExists(name string) *Queue {
+	self.queues_lock.RLock()
+	queue, _ := self.queues[name]
+	self.queues_lock.RUnlock()
+	return queue
+}
+
+func (self *Server) GetTopicIfExists(name string) *Topic {
+	self.topics_lock.RLock()
+	topic, _ := self.topics[name]
+	self.topics_lock.RUnlock()
+	return topic
 }
 
 func (self *Server) CreateQueueIfNotExists(name string) *Queue {
@@ -363,6 +401,5 @@ func NewServer(opts *Options) (*Server, error) {
 	srv.RunItInGoroutine(func() {
 		srv.runLoop(listener)
 	})
-
 	return srv, nil
 }

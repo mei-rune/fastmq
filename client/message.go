@@ -71,6 +71,8 @@ func ToCommandName(cmd byte) string {
 		return "MSG_NOOP"
 	case MSG_CLOSE:
 		return "MSG_CLOSE"
+	case MSG_KILL:
+		return "MSG_KILL"
 	default:
 		return "UNKNOWN-" + string(cmd)
 	}

@@ -47,7 +47,6 @@ func (self *Client) runWrite(c chan interface{}) {
 	defer tick.Stop()
 
 	var msg_ch chan mq_client.Message
-	//var is_pub bool
 
 	for 0 == atomic.LoadInt32(&self.closed) &&
 		0 == atomic.LoadInt32(&self.srv.is_stopped) {
@@ -58,9 +57,6 @@ func (self *Client) runWrite(c chan interface{}) {
 			}
 			switch cmd := v.(type) {
 			case *errorCommand:
-				//if is_pub {
-				//	return nil
-				//}
 				if err := mq_client.SendFull(conn, cmd.msg.ToBytes()); err != nil {
 					if 0 == atomic.LoadInt32(&self.closed) {
 						self.srv.logf("[%s - %s] fail to send error message, %s", self.id(), self.remoteAddr, err)
@@ -74,7 +70,6 @@ func (self *Client) runWrite(c chan interface{}) {
 				}
 
 				msg_ch = cmd.ch
-				//is_pub = false
 			case *pubCommand:
 				msg_ch = nil
 
@@ -82,7 +77,6 @@ func (self *Client) runWrite(c chan interface{}) {
 					self.srv.logf("[%s - %s] fail to send ack message, %s", self.id(), self.remoteAddr, err)
 					return
 				}
-				//is_pub = true
 
 			case *closeCommand:
 				if cmd.closer != nil {
@@ -92,7 +86,6 @@ func (self *Client) runWrite(c chan interface{}) {
 				}
 
 				msg_ch = nil
-				//is_pub = false
 				if err := mq_client.SendFull(conn, mq_client.MSG_ACK_BYTES); err != nil {
 					self.srv.logf("[%s - %s] fail to send ack message, %s", self.id(), self.remoteAddr, err)
 					return
@@ -136,10 +129,15 @@ func (self *Client) runRead(c chan interface{}) {
 	ctx.srv = self.srv
 	ctx.client = self
 	defer ctx.Reset()
+	defer ctx.srv.catchThrow("["+self.name+"-"+self.remoteAddr+"] ["+mq_client.ToCommandName(ctx.currentCmd)+"]",
+		func() {
+			conn.Close()
+		})
 
 	reader := mq_client.NewMessageReader(conn, self.srv.options.MsgBufferSize)
 	for 0 == atomic.LoadInt32(&self.closed) &&
 		0 == atomic.LoadInt32(&self.srv.is_stopped) {
+
 		msg, err := reader.ReadMessage()
 		if nil != err {
 			c <- &errorCommand{msg: mq_client.BuildErrorMessage(err.Error())}
@@ -152,33 +150,42 @@ func (self *Client) runRead(c chan interface{}) {
 			break
 		}
 	}
-
-	//fmt.Println(ctx.id)
-	//fmt.Println("DataLength=", reader.DataLength())
 }
 
 type execCtx struct {
-	srv      *Server
-	client   *Client
-	c        chan interface{}
-	producer Producer
-	consumer *Consumer
+	srv        *Server
+	client     *Client
+	c          chan interface{}
+	producer   Producer
+	consumer   *Consumer
+	currentCmd byte
 	//id       uint32
 }
 
 func (ctx *execCtx) execute(msg mq_client.Message) bool {
-	defer ctx.srv.catchThrow("[" + ctx.client.name + "-" + ctx.client.remoteAddr + "] [" + mq_client.ToCommandName(msg.Command()) + "]")
-
-	switch msg.Command() {
+	ctx.currentCmd = msg.Command()
+	switch ctx.currentCmd {
 	case mq_client.MSG_KILL:
 
+		ss := bytes.Fields(msg.Data())
+		if 2 != len(ss) {
+			ctx.c <- &errorCommand{msg: mq_client.BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
+			return true
+		}
+
+		if bytes.Equal(ss[0], []byte("queue")) {
+			ctx.srv.KillQueueIfExists(string(ss[1]))
+		} else if bytes.Equal(ss[0], []byte("topic")) {
+			ctx.srv.KillTopicIfExists(string(ss[1]))
+		} else {
+			ctx.c <- &errorCommand{msg: mq_client.BuildErrorMessage("invalid command - '" + string(msg.Data()) + "'.")}
+		}
 		return true
 	case mq_client.MSG_NOOP:
 		return true
 	case mq_client.MSG_ID:
 		ctx.client.mu.Lock()
 		defer ctx.client.mu.Unlock()
-
 		if msg.DataLength() == 0 {
 			ctx.client.name = ""
 		} else {
@@ -199,7 +206,6 @@ func (ctx *execCtx) execute(msg mq_client.Message) bool {
 		if err := ctx.Reset(); err != nil {
 			ctx.c <- &errorCommand{msg: mq_client.BuildErrorMessage("failed to reset context, " + err.Error())}
 		}
-
 		return true
 	case mq_client.MSG_DATA:
 		if ctx.producer == nil {
