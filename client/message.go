@@ -466,3 +466,53 @@ func (self *FixedMessageReader) ReadMessage() (Message, error) {
 
 	return Message(bs), nil
 }
+
+type BatchMessages struct {
+	buffer *bytes.Buffer
+}
+
+func (self *BatchMessages) Init(buffer *bytes.Buffer) {
+	buffer.Reset()
+	self.buffer = buffer
+}
+
+func (self *BatchMessages) New(cmd byte) Builder {
+	self.buffer.Write(MSG_DATA_EMPTY_HEADER_BYTES)
+	return Builder{self.buffer, cmd}
+}
+
+func (self *BatchMessages) ToBytes() []byte { return self.buffer.Bytes() }
+
+type Builder struct {
+	buffer *bytes.Buffer
+	cmd    byte
+}
+
+func (self Builder) WriteString(data string) (int, error) {
+	return self.buffer.WriteString(data)
+}
+
+func (self Builder) Write(data []byte) (int, error) {
+	return self.buffer.Write(data)
+}
+
+func (self Builder) Truncate(n int) {
+	self.buffer.Truncate(n)
+}
+
+func (self Builder) Len() int {
+	return self.buffer.Len()
+}
+
+func (self Builder) Bytes() []byte {
+	return self.buffer.Bytes()
+}
+
+func (self Builder) WriteByte(b byte) error {
+	return self.buffer.WriteByte(b)
+}
+
+func (self Builder) Close() error {
+	BuildMessageWith(self.cmd, self.buffer)
+	return nil
+}

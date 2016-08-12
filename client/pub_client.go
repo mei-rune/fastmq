@@ -57,6 +57,10 @@ func (self *SimplePubClient) Send(msg Message) error {
 	return SendFull(self.conn, msg.ToBytes())
 }
 
+func (self *SimplePubClient) SendBatch(batch BatchMessages) error {
+	return SendFull(self.conn, batch.ToBytes())
+}
+
 func NewSignelData(msg Message,
 	err error) *SignelData {
 	res := responsePool.Get().(*SignelData)
