@@ -477,14 +477,16 @@ func (self *BatchMessages) Init(buffer *bytes.Buffer) {
 }
 
 func (self *BatchMessages) New(cmd byte) Builder {
+	offset := self.buffer.Len()
 	self.buffer.Write(MSG_DATA_EMPTY_HEADER_BYTES)
-	return Builder{self.buffer, cmd}
+	return Builder{self.buffer, offset, cmd}
 }
 
 func (self *BatchMessages) ToBytes() []byte { return self.buffer.Bytes() }
 
 type Builder struct {
 	buffer *bytes.Buffer
+	offset int
 	cmd    byte
 }
 
@@ -513,6 +515,8 @@ func (self Builder) WriteByte(b byte) error {
 }
 
 func (self Builder) Close() error {
-	BuildMessageWith(self.cmd, self.buffer)
+	bs := self.buffer.Bytes()[self.offset:]
+	bs[0] = self.cmd
+	BuildMessage(bs)
 	return nil
 }
