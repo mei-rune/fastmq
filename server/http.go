@@ -91,16 +91,28 @@ func (self *standardEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		url_path = strings.TrimPrefix(url_path, self.prefix)
+		if !strings.HasPrefix(url_path, "mq/") {
+			self.handler.ServeHTTP(w, r)
+			return
+		}
+
+		url_path = strings.TrimPrefix(url_path, "mq/")
+	} else {
+		if !strings.HasPrefix(url_path, "/mq/") {
+			self.handler.ServeHTTP(w, r)
+			return
+		}
+		url_path = strings.TrimPrefix(url_path, "mq/")
 	}
 
-	if url_path == "/mq/queues" {
+	if url_path == "queues" {
 		self.queuesIndex(w, r)
-	} else if url_path == "/mq/topics" {
+	} else if url_path == "topics" {
 		self.topicsIndex(w, r)
-	} else if url_path == "/mq/clients" {
+	} else if url_path == "clients" {
 		self.clientsIndex(w, r)
-	} else if strings.HasPrefix(url_path, "/mq/queues/") {
-		url_path = strings.TrimPrefix(url_path, "/mq/queues/")
+	} else if strings.HasPrefix(url_path, "queues/") {
+		url_path = strings.TrimPrefix(url_path, "queues/")
 		if "" == url_path {
 			self.queuesIndex(w, r)
 			return
@@ -113,14 +125,14 @@ func (self *standardEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			func(name string) Producer {
 				return self.srv.CreateQueueIfNotExists(name)
 			})
-	} else if strings.HasPrefix(url_path, "/mq/topics/") {
-		url_path = strings.TrimPrefix(url_path, "/mq/topics/")
+	} else if strings.HasPrefix(url_path, "topics/") {
+		url_path = strings.TrimPrefix(url_path, "topics/")
 		if "" == url_path {
 			self.queuesIndex(w, r)
 			return
 		}
 
-		self.doHandler(w, r, strings.TrimPrefix(url_path, "/mq/topics/"),
+		self.doHandler(w, r, strings.TrimPrefix(url_path, "topics/"),
 			func(name string) *Consumer {
 				return self.srv.CreateTopicIfNotExists(name).ListenOn()
 			},
