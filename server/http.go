@@ -8,6 +8,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -144,6 +145,21 @@ func (self *standardEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func readMore(c chan mq_client.Message, msg mq_client.Message) []mq_client.Message {
+	results := append(make([]mq_client.Message, 0, 12), msg)
+	for i := 0; i < 100; i++ {
+		select {
+		case m, ok := <-c:
+			if !ok {
+				return results
+			}
+			results = append(results, m)
+		default:
+			return results
+		}
+	}
+	return results
+}
 func (self *standardEngine) doHandler(w http.ResponseWriter, r *http.Request,
 	url_path string, recv_cb func(name string) *Consumer,
 	send_cb func(name string) Producer) {
@@ -165,12 +181,33 @@ func (self *standardEngine) doHandler(w http.ResponseWriter, r *http.Request,
 				return
 			}
 
-			w.Header().Add("Content-Type", "text/plain")
-			w.WriteHeader(http.StatusOK)
-			// fmt.Println("===================", msg.DataLength(), mq_client.ToCommandName(msg.Command()))
-			if msg.DataLength() > 0 {
-				w.Write(msg.Data())
+			if query_params.Get("batch") != "true" {
+				w.Header().Add("Content-Type", "text/plain")
+				w.WriteHeader(http.StatusOK)
+				if msg.DataLength() > 0 {
+					w.Write(msg.Data())
+				}
+			} else {
+				msgList := readMore(consumer.C, msg)
+				w.Header().Add("X-HW-Batch", strconv.FormatInt(int64(len(msgList)), 10))
+				w.WriteHeader(http.StatusOK)
+
+				w.Write([]byte("["))
+				is_frist := true
+				for _, m := range msgList {
+					if m.DataLength() > 0 {
+						if is_frist {
+							is_frist = false
+						} else {
+							w.Write([]byte(","))
+						}
+
+						w.Write(m.Data())
+					}
+				}
+				w.Write([]byte("]"))
 			}
+
 		case <-timer.C:
 			w.WriteHeader(http.StatusNoContent)
 		}
