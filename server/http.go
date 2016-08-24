@@ -83,6 +83,16 @@ func (self *standardEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	url_path := r.URL.Path
 	if self.hasPrefix {
 		if !strings.HasPrefix(url_path, self.prefix) {
+			if strings.HasPrefix(url_path, "/debug/") {
+				if url_path == "/debug/pprof" {
+					http.Redirect(w, r, "/debug/pprof/", http.StatusMovedPermanently)
+					return
+				}
+
+				http.DefaultServeMux.ServeHTTP(w, r)
+				return
+			}
+
 			if self.is_redirect {
 				http.Redirect(w, r, self.redirect_url, http.StatusMovedPermanently)
 				return
@@ -103,7 +113,7 @@ func (self *standardEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			self.handler.ServeHTTP(w, r)
 			return
 		}
-		url_path = strings.TrimPrefix(url_path, "mq/")
+		url_path = strings.TrimPrefix(url_path, "/mq/")
 	}
 
 	if url_path == "queues" {
@@ -141,7 +151,7 @@ func (self *standardEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return self.srv.CreateTopicIfNotExists(name)
 			})
 	} else {
-		self.handler.ServeHTTP(w, r)
+		http.DefaultServeMux.ServeHTTP(w, r)
 	}
 }
 
