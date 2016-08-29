@@ -18,12 +18,16 @@ import (
 
 type Base struct {
 	closed int32
+	S      chan struct{}
 	wait   sync.WaitGroup
 }
 
 func (self *Base) CloseWith(closeHandle func() error) error {
 	if !atomic.CompareAndSwapInt32(&self.closed, 0, 1) {
 		return nil
+	}
+	if nil != self.S {
+		close(self.S)
 	}
 	var err error
 	if nil != closeHandle {
@@ -164,6 +168,9 @@ func (self *Handler) runWrite(builder *ClientBuilder) (err error) {
 				log.Println("[mq] ["+self.SendQname+"] send message fialed,", err)
 				return nil
 			}
+		case <-self.Base.S:
+			log.Println("[mq] [" + self.SendQname + "] mq server is closed")
+			return nil
 		case <-tick.C:
 			if len(self.c) > 0 {
 				break
@@ -252,7 +259,6 @@ type QueueMgr struct {
 	Qname         string
 	qmatchType    string
 	qmatchName    string
-	shutdown      chan struct{}
 	handlers_lock sync.Mutex
 	handlers      map[string]HandlerObject
 	create        func(mgr *QueueMgr, name string)
@@ -263,8 +269,6 @@ func (self *QueueMgr) Close() error {
 }
 
 func (self *QueueMgr) CloseDirect() error {
-	close(self.shutdown)
-
 	self.handlers_lock.Lock()
 	defer self.handlers_lock.Unlock()
 
@@ -315,7 +319,7 @@ func (self *QueueMgr) RunPoll() {
 			if count < 60 || count%30 == 0 {
 				self.PollList()
 			}
-		case <-self.shutdown:
+		case <-self.S:
 			return
 		}
 	}
@@ -439,11 +443,11 @@ func NewQueueMgr(url, typ, qname, matchType, matchName string, cb func(mgr *Queu
 	}
 
 	return &QueueMgr{
+		Base:       Base{S: make(chan struct{})},
 		Url:        url,
 		Qtype:      typ,
 		Qname:      qname,
 		qmatchType: matchType,
 		qmatchName: matchName,
-		shutdown:   make(chan struct{}),
 		create:     cb}
 }
