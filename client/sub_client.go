@@ -32,11 +32,11 @@ func (self *Subscription) Stop() error {
 }
 
 func (self *Subscription) subscribe(bufSize int, cb func(cli *Subscription, msg Message)) error {
-	var reader BufferedMessageReader
+	var reader FixedMessageReader
 	var recvMessage Message
 	var err error
 
-	reader.Init(self.conn, bufSize)
+	reader.Init(self.conn)
 	for {
 		recvMessage, err = reader.ReadMessage()
 		if nil != err {
@@ -50,9 +50,8 @@ func (self *Subscription) subscribe(bufSize int, cb func(cli *Subscription, msg 
 			if recvMessage.Command() == MSG_ACK {
 				if self.closed {
 					return nil
-				} else {
-					return &ErrDisconnect{ErrUnexceptedAck}
 				}
+				return &ErrDisconnect{ErrUnexceptedAck}
 			}
 
 			cb(self, recvMessage)

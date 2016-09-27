@@ -3,11 +3,12 @@ package client
 import (
 	"bytes"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-func assertEq(t *testing.T, reader *BufferedMessageReader, input string, excepted Message) {
+func assertEq(t *testing.T, reader MessageReader, input string, excepted Message) {
 	msg, err := reader.ReadMessage()
 	if nil != err {
 		t.Error("[", input, "]", err)
@@ -35,13 +36,13 @@ func assertEq(t *testing.T, reader *BufferedMessageReader, input string, excepte
 
 	if !bytes.Equal(msg.Data(), excepted.Data()) {
 		//fmt.Println("'"+string(msg.ToBytes())+"'", len(msg.ToBytes()))
-		t.Error("[", input, "] Data is error - ", msg.Data(), excepted.Data())
+		t.Error("[", input, "] Data is error - ", len(msg.Data()), len(excepted.Data()))
 		return
 	}
 }
 
 func TestMessageReadLength(t *testing.T) {
-	var ok_tests = []struct {
+	var okTests = []struct {
 		input    string
 		excepted Message
 	}{
@@ -58,16 +59,19 @@ func TestMessageReadLength(t *testing.T) {
 			excepted: NewMessageWriter('p', 0).Append(bytes.Repeat([]byte{'1'}, 1111)).Build()},
 		{input: "p 11111\n" + strings.Repeat("1", 11111),
 			excepted: NewMessageWriter('p', 0).Append(bytes.Repeat([]byte{'1'}, 11111)).Build()},
+		{input: string(NewMessageWriter('p', 0).Append(bytes.Repeat([]byte{'1'}, 75535)).Build().ToBytes()),
+			excepted: NewMessageWriter('p', 0).Append(bytes.Repeat([]byte{'1'}, 75535)).Build()},
 	}
 
-	for _, s := range ok_tests {
+	for _, s := range okTests {
 		if !bytes.Equal(s.excepted.ToBytes(), []byte(s.input)) {
 			t.Error("[", s.input, "] Data is error")
 			continue
 		}
 
-		rd := NewMessageReader(strings.NewReader(s.input), 100)
-		assertEq(t, rd, s.input, s.excepted)
+		var rd FixedMessageReader
+		rd.Init(strings.NewReader(s.input))
+		assertEq(t, &rd, s.input, s.excepted)
 
 		msg, err := rd.ReadMessage()
 		if io.EOF != err {
@@ -78,20 +82,22 @@ func TestMessageReadLength(t *testing.T) {
 		}
 	}
 
-	for _, s := range ok_tests {
+	for idx, s := range okTests {
 		for i := 1; i < 10; i++ {
 			data := strings.Repeat(s.input, i)
 
-			rd := NewMessageReader(strings.NewReader(data), 100)
+			var rd FixedMessageReader
+			rd.Init(strings.NewReader(data))
+
 			for j := 0; j < i; j++ {
-				assertEq(t, rd, s.input, s.excepted)
+				assertEq(t, &rd, strconv.FormatInt(int64(idx), 10)+"-"+strconv.FormatInt(int64(i), 10)+"-"+strconv.FormatInt(int64(j), 10), s.excepted)
 			}
 		}
 	}
 }
 
 func TestMessageReadMuti(t *testing.T) {
-	var ok_tests = []struct {
+	var okTests = []struct {
 		input    string
 		excepted Message
 	}{
@@ -104,9 +110,10 @@ func TestMessageReadMuti(t *testing.T) {
 			excepted: NewMessageWriter('p', 0).Append(bytes.Repeat([]byte{'1'}, 11)).Build()},
 	}
 
-	for _, s := range ok_tests {
-		rd := NewMessageReader(strings.NewReader(s.input), 100)
-		assertEq(t, rd, s.input, s.excepted)
-		assertEq(t, rd, s.input, s.excepted)
+	for _, s := range okTests {
+		var rd FixedMessageReader
+		rd.Init(strings.NewReader(s.input))
+		assertEq(t, &rd, s.input, s.excepted)
+		//assertEq(t, &rd, s.input, s.excepted)
 	}
 }

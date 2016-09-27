@@ -134,7 +134,9 @@ func (self *Client) runRead(c chan interface{}) {
 			conn.Close()
 		})
 
-	reader := mq_client.NewMessageReader(conn, self.srv.options.MsgBufferSize)
+	var reader mq_client.FixedMessageReader
+	reader.Init(conn)
+
 	for 0 == atomic.LoadInt32(&self.closed) &&
 		0 == atomic.LoadInt32(&self.srv.is_stopped) {
 

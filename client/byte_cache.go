@@ -36,7 +36,7 @@ func init() {
 	}
 }
 
-func MakeBytes(size int) []byte {
+func MakeBytes(size uint) []byte {
 	switch {
 	case size <= 64:
 		return bytes_64b.Get().([]byte)[:size]

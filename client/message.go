@@ -2,9 +2,10 @@ package client
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
+	"math"
 )
 
 // message format
@@ -16,10 +17,10 @@ import (
 // data    is a byte array, length is between 0 to 65523 (65535-12).
 //
 
-const MAX_ENVELOPE_LENGTH = 65535
-const MAX_MESSAGE_LENGTH = 65523
-const HEAD_LENGTH = 8
 const MAGIC_LENGTH = 4
+const MAX_ENVELOPE_LENGTH = math.MaxUint32
+const MAX_MESSAGE_LENGTH = math.MaxUint32 - HEAD_LENGTH
+const HEAD_LENGTH = 8
 const SYS_EVENTS = "_sys.events"
 
 var (
@@ -78,24 +79,30 @@ func ToCommandName(cmd byte) string {
 	}
 }
 
+// Message - 一个消息的数据
 type Message []byte
 
-func (self Message) Command() byte {
-	return self[0]
+// Command - 返回命令号
+func (msg Message) Command() byte {
+	return msg[0]
 }
 
-func (self Message) DataLength() int {
-	return len(self) - HEAD_LENGTH
+// DataLength - 获取消息的数据部份的长度
+func (msg Message) DataLength() int {
+	return len(msg) - HEAD_LENGTH
 }
 
-func (self Message) Data() []byte {
-	return self[HEAD_LENGTH:]
+// Data - 获取消息的数据部份
+func (msg Message) Data() []byte {
+	return msg[HEAD_LENGTH:]
 }
 
-func (self Message) ToBytes() []byte {
-	return self
+// ToBytes - 转换为字节数组
+func (msg Message) ToBytes() []byte {
+	return msg
 }
 
+// MessageReader - 读消息的接口
 type MessageReader interface {
 	ReadMessage() (Message, error)
 }
@@ -104,188 +111,166 @@ type errReader struct {
 	err error
 }
 
-func (self *errReader) Read(bs []byte) (int, error) {
-	return 0, self.err
+func (r *errReader) Read(bs []byte) (int, error) {
+	return 0, r.err
 }
 
-type BufferedMessageReader struct {
-	conn   io.Reader
-	buffer []byte
-	start  int
-	end    int
+// type BufferedMessageReader struct {
+// 	conn   io.Reader
+// 	buffer []byte
+// 	start  int
+// 	end    int
 
-	buffer_size int
-}
+// 	buffer_size int
+// }
 
-func (self *BufferedMessageReader) DataLength() int {
-	return self.end - self.start
-}
+// func (self *BufferedMessageReader) DataLength() int {
+// 	return self.end - self.start
+// }
 
-func (self *BufferedMessageReader) Init(conn io.Reader, size int) {
-	self.conn = conn
-	self.buffer = MakeBytes(size)
-	self.start = 0
-	self.end = 0
-	self.buffer_size = size
-}
+// func (self *BufferedMessageReader) Init(conn io.Reader, size int) {
+// 	self.conn = conn
+// 	self.buffer = MakeBytes(size)
+// 	self.start = 0
+// 	self.end = 0
+// 	self.buffer_size = size
+// }
 
-func readLength(bs []byte) (int, error) {
-	// fmt.Println(bs)
-	start := 0
-	for ' ' == bs[start] {
-		start++
-	}
-	if start >= 5 {
-		return 0, ErrLengthNotDigit
-	}
+// func (self *BufferedMessageReader) ensureCapacity(size int) {
+// 	//fmt.Println("ensureCapacity", size, self.buffer_size)
+// 	if self.buffer_size > size {
+// 		size = self.buffer_size
+// 	}
+// 	//fmt.Println("ensureCapacity", size, self.buffer_size)
+// 	tmp := MakeBytes(size)
+// 	self.end = copy(tmp, self.buffer[self.start:self.end])
+// 	self.start = 0
+// 	self.buffer = tmp
+// 	//fmt.Println(len(tmp))
+// }
 
-	length := int(bs[start] - '0')
-	if length > 9 {
-		//fmt.Println(bs[start], start)
-		return 0, ErrLengthNotDigit
-	}
-	start++
-	for ; start < 5; start++ {
-		if l := int(bs[start] - '0'); l > 9 {
-			//fmt.Println(bs[start], start)
-			return 0, ErrLengthNotDigit
-		} else {
-			length *= 10
-			length += l
-		}
-	}
-	return length, nil
-}
+// func (self *BufferedMessageReader) nextMessage() (bool, Message, error) {
+// 	length := self.end - self.start
+// 	if length < HEAD_LENGTH {
+// 		buf_reserve := len(self.buffer) - self.end
+// 		if buf_reserve < (HEAD_LENGTH + 16) {
+// 			self.ensureCapacity(256)
+// 		}
 
-func (self *BufferedMessageReader) ensureCapacity(size int) {
-	//fmt.Println("ensureCapacity", size, self.buffer_size)
-	if self.buffer_size > size {
-		size = self.buffer_size
-	}
-	//fmt.Println("ensureCapacity", size, self.buffer_size)
-	tmp := MakeBytes(size)
-	self.end = copy(tmp, self.buffer[self.start:self.end])
-	self.start = 0
-	self.buffer = tmp
-	//fmt.Println(len(tmp))
-}
+// 		return false, nil, nil
+// 	}
 
-func (self *BufferedMessageReader) nextMessage() (bool, Message, error) {
-	length := self.end - self.start
-	if length < HEAD_LENGTH {
-		buf_reserve := len(self.buffer) - self.end
-		if buf_reserve < (HEAD_LENGTH + 16) {
-			self.ensureCapacity(256)
-		}
+// 	msg_data_length, err := readLength(self.buffer[self.start:])
+// 	if err != nil {
+// 		return false, nil, err
+// 	}
+// 	//fmt.Println(msg_data_length, length, self.end, self.start, len(self.buffer))
 
-		return false, nil, nil
-	}
+// 	//if msg_data_length > MAX_MESSAGE_LENGTH {
+// 	//	return false, nil, ErrLengthExceed
+// 	//}
 
-	msg_data_length, err := readLength(self.buffer[self.start+2:])
-	if err != nil {
-		return false, nil, err
-	}
-	//fmt.Println(msg_data_length, length, self.end, self.start, len(self.buffer))
+// 	msg_total_length := msg_data_length + HEAD_LENGTH
+// 	if msg_total_length <= length {
+// 		bs := self.buffer[self.start : self.start+msg_total_length]
+// 		self.start += msg_total_length
+// 		return true, Message(bs), nil
+// 	}
 
-	if msg_data_length > MAX_MESSAGE_LENGTH {
-		return false, nil, ErrLengthExceed
-	}
+// 	msg_residue := msg_total_length - length
+// 	buf_reserve := len(self.buffer) - self.end
+// 	if msg_residue > buf_reserve {
+// 		//if msg_total_length > 2*(MAX_MESSAGE_LENGTH+HEAD_LENGTH) {
+// 		//	return false, nil, fmt.Errorf("ensureCapacity failed: %v", msg_total_length)
+// 		//}
 
-	msg_total_length := msg_data_length + HEAD_LENGTH
-	if msg_total_length <= length {
-		bs := self.buffer[self.start : self.start+msg_total_length]
-		self.start += msg_total_length
-		return true, Message(bs), nil
-	}
+// 		self.ensureCapacity(msg_total_length)
+// 	}
+// 	return false, nil, nil
+// }
 
-	msg_residue := msg_total_length - length
-	buf_reserve := len(self.buffer) - self.end
-	if msg_residue > buf_reserve {
-		if msg_total_length > 2*(MAX_MESSAGE_LENGTH+HEAD_LENGTH) {
-			return false, nil, fmt.Errorf("ensureCapacity failed: %v", msg_total_length)
-		}
+// func (self *BufferedMessageReader) ReadMessage() (Message, error) {
+// 	ok, msg, err := self.nextMessage()
+// 	if ok {
+// 		return msg, nil
+// 	}
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-		self.ensureCapacity(msg_total_length)
-	}
-	return false, nil, nil
-}
+// 	n, err := self.conn.Read(self.buffer[self.end:])
+// 	if err != nil {
+// 		if n <= 0 {
+// 			return nil, err
+// 		}
+// 		self.conn = &errReader{err: err}
+// 	}
 
-func (self *BufferedMessageReader) ReadMessage() (Message, error) {
-	ok, msg, err := self.nextMessage()
-	if ok {
-		return msg, nil
-	}
-	if err != nil {
-		return nil, err
-	}
+// 	self.end += n
+// 	ok, msg, err = self.nextMessage()
+// 	if ok {
+// 		return msg, nil
+// 	}
+// 	return nil, err
+// }
 
-	n, err := self.conn.Read(self.buffer[self.end:])
-	if err != nil {
-		if n <= 0 {
-			return nil, err
-		}
-		self.conn = &errReader{err: err}
-	}
+// func NewMessageReader(conn io.Reader, size int) *BufferedMessageReader {
+// 	return &BufferedMessageReader{
+// 		conn:        conn,
+// 		buffer:      MakeBytes(size),
+// 		start:       0,
+// 		end:         0,
+// 		buffer_size: size,
+// 	}
+// }
 
-	self.end += n
-	ok, msg, err = self.nextMessage()
-	if ok {
-		return msg, nil
-	}
-	return nil, err
-}
-
-func NewMessageReader(conn io.Reader, size int) *BufferedMessageReader {
-	return &BufferedMessageReader{
-		conn:        conn,
-		buffer:      MakeBytes(size),
-		start:       0,
-		end:         0,
-		buffer_size: size,
-	}
-}
-
-type MeesageBuilder struct {
+// MessageBuilder - 消息的创建工厂
+type MessageBuilder struct {
 	buffer []byte
 }
 
-func (self *MeesageBuilder) Init(cmd byte, capacity int) {
-	self.buffer = MakeBytes(HEAD_LENGTH + capacity)
-	self.buffer[0] = cmd
-	self.buffer[1] = ' '
-	self.buffer[7] = '\n'
-	self.buffer = self.buffer[:HEAD_LENGTH]
+// Init - 初始化消息工厂
+func (builder *MessageBuilder) Init(cmd byte, capacity int) {
+	builder.buffer = MakeBytes(HEAD_LENGTH + uint(capacity))
+	builder.buffer[0] = cmd
+	builder.buffer[1] = ' '
+	builder.buffer[7] = '\n'
+	builder.buffer = builder.buffer[:HEAD_LENGTH]
 }
 
-func (self *MeesageBuilder) Append(bs []byte) *MeesageBuilder {
-	if len(self.buffer)+len(bs) > MAX_MESSAGE_LENGTH {
+// Append - 将字节追加到消息体的未尾
+func (builder *MessageBuilder) Append(bs []byte) *MessageBuilder {
+	if len(builder.buffer)+len(bs) > MAX_MESSAGE_LENGTH {
 		panic(ErrLengthExceed)
 	}
 
-	self.buffer = append(self.buffer, bs...)
-	return self
+	builder.buffer = append(builder.buffer, bs...)
+	return builder
 }
 
-func (self *MeesageBuilder) Write(bs []byte) (int, error) {
-	if len(self.buffer)+len(bs) > MAX_MESSAGE_LENGTH {
+// Write - 将字节追加到消息体的未尾
+func (builder *MessageBuilder) Write(bs []byte) (int, error) {
+	if len(builder.buffer)+len(bs) > MAX_MESSAGE_LENGTH {
 		return 0, ErrLengthExceed
 	}
 
-	self.buffer = append(self.buffer, bs...)
+	builder.buffer = append(builder.buffer, bs...)
 	return len(bs), nil
 }
 
-func (self *MeesageBuilder) WriteString(s string) (int, error) {
-	if len(self.buffer)+len(s) > MAX_MESSAGE_LENGTH {
+// WriteString - 将字节追加到消息体的未尾
+func (builder *MessageBuilder) WriteString(s string) (int, error) {
+	if len(builder.buffer)+len(s) > MAX_MESSAGE_LENGTH {
 		return 0, ErrLengthExceed
 	}
 
-	self.buffer = append(self.buffer, s...)
+	builder.buffer = append(builder.buffer, s...)
 	return len(s), nil
 }
 
-func (self *MeesageBuilder) Build() Message {
-	return BuildMessage(self.buffer)
+// Build - 创建消息
+func (builder *MessageBuilder) Build() Message {
+	return BuildMessage(builder.buffer)
 }
 
 func BuildMessageWith(cmd byte, buffer *bytes.Buffer) Message {
@@ -295,6 +280,20 @@ func BuildMessageWith(cmd byte, buffer *bytes.Buffer) Message {
 }
 
 func BuildMessage(buffer []byte) Message {
+	msg, err := CreateMessage(buffer)
+	if err != nil {
+		panic(err)
+	}
+	return msg
+}
+
+func CreateMessageWith(cmd byte, buffer *bytes.Buffer) (Message, error) {
+	bs := buffer.Bytes()
+	bs[0] = cmd
+	return CreateMessage(bs)
+}
+
+func CreateMessage(buffer []byte) (Message, error) {
 	length := len(buffer) - HEAD_LENGTH
 	//if length < 65535 {
 	//	buffer = append(buffer, '\n')
@@ -302,50 +301,87 @@ func BuildMessage(buffer []byte) Message {
 	//}
 
 	switch {
+	case uint64(length) > math.MaxUint32:
+		return nil, ErrLengthExceed
 	case length > 65535:
-		panic(ErrLengthExceed)
+		buffer[1] = 1
+		binary.BigEndian.PutUint32(buffer[4:], uint32(length))
 	case length >= 10000:
+		buffer[1] = ' '
 		buffer[2] = '0' + byte(length/10000)
 		buffer[3] = '0' + byte((length%10000)/1000)
 		buffer[4] = '0' + byte((length%1000)/100)
 		buffer[5] = '0' + byte((length%100)/10)
 		buffer[6] = '0' + byte(length%10)
 	case length >= 1000:
+		buffer[1] = ' '
 		buffer[2] = ' '
 		buffer[3] = '0' + byte(length/1000)
 		buffer[4] = '0' + byte((length%1000)/100)
 		buffer[5] = '0' + byte((length%100)/10)
 		buffer[6] = '0' + byte(length%10)
 	case length >= 100:
+		buffer[1] = ' '
 		buffer[2] = ' '
 		buffer[3] = ' '
 		buffer[4] = '0' + byte(length/100)
 		buffer[5] = '0' + byte((length%100)/10)
 		buffer[6] = '0' + byte(length%10)
 	case length >= 10:
+		buffer[1] = ' '
 		buffer[2] = ' '
 		buffer[3] = ' '
 		buffer[4] = ' '
 		buffer[5] = '0' + byte(length/10)
 		buffer[6] = '0' + byte(length%10)
 	default:
+		buffer[1] = ' '
 		buffer[2] = ' '
 		buffer[3] = ' '
 		buffer[4] = ' '
 		buffer[5] = ' '
 		buffer[6] = '0' + byte(length)
 	}
-	return Message(buffer)
+	return Message(buffer), nil
 }
 
-func NewMessageWriter(cmd byte, capacity int) *MeesageBuilder {
-	builder := &MeesageBuilder{}
+func readLength(bs []byte) (uint, error) {
+	if 1 == bs[1] {
+		return uint(binary.BigEndian.Uint32(bs[4:])), nil
+	}
+
+	start := 2
+	for ' ' == bs[start] {
+		start++
+	}
+	if start >= HEAD_LENGTH {
+		return 0, ErrLengthNotDigit
+	}
+
+	length := uint(bs[start] - '0')
+	if length > 9 {
+		return 0, ErrLengthNotDigit
+	}
+	start++
+	for ; start < (HEAD_LENGTH - 1); start++ {
+		l := uint(bs[start] - '0')
+		if l > 9 {
+			return 0, ErrLengthNotDigit
+		}
+		length *= 10
+		length += l
+	}
+	return length, nil
+}
+
+func NewMessageWriter(cmd byte, capacity int) *MessageBuilder {
+	builder := &MessageBuilder{}
 	builder.Init(cmd, capacity)
 	return builder
 }
 
 func BuildErrorMessage(msg string) Message {
-	var builder MeesageBuilder
+	var builder MessageBuilder
 	builder.Init(MSG_ERROR, len(msg))
 	builder.WriteString(msg)
 	return builder.Build()
@@ -376,34 +412,34 @@ type FixedReader struct {
 	conn io.Reader
 }
 
-func (self *FixedReader) Init(conn io.Reader) {
-	self.conn = conn
+func (r *FixedReader) Init(conn io.Reader) {
+	r.conn = conn
 }
 
-func (self *FixedReader) ReadMessage() (Message, error) {
-	return ReadMessage(self.conn)
+func (r *FixedReader) ReadMessage() (Message, error) {
+	return ReadMessage(r.conn)
 }
 
 func ReadMessage(rd io.Reader) (Message, error) {
-	var head_buf [HEAD_LENGTH]byte
+	var headBuffer [HEAD_LENGTH]byte
 
-	_, err := io.ReadFull(rd, head_buf[:])
+	_, err := io.ReadFull(rd, headBuffer[:])
 	if err != nil {
 		return nil, err
 	}
 
-	msg_data_length, err := readLength(head_buf[2:])
+	dataLength, err := readLength(headBuffer[:])
 	if err != nil {
 		return nil, err
 	}
 
-	msg_bytes := MakeBytes(HEAD_LENGTH + msg_data_length)
-	_, err = io.ReadFull(rd, msg_bytes[HEAD_LENGTH:])
+	msgBytes := MakeBytes(HEAD_LENGTH + dataLength)
+	_, err = io.ReadFull(rd, msgBytes[HEAD_LENGTH:])
 	if err != nil {
 		return nil, err
 	}
-	copy(msg_bytes, head_buf[:])
-	return msg_bytes, nil
+	copy(msgBytes, headBuffer[:])
+	return msgBytes, nil
 }
 
 func SendMagic(w io.Writer) error {
@@ -424,42 +460,47 @@ func ReadMagic(r io.Reader) error {
 type FixedMessageReader struct {
 	conn   io.Reader
 	buffer [2 * HEAD_LENGTH]byte
-	length int
+	length uint
 }
 
-func (self *FixedMessageReader) ReadMessage() (Message, error) {
-	//if self.stage == 0 {
-	if self.length < HEAD_LENGTH {
-		n, err := self.conn.Read(self.buffer[self.length:])
+func (r *FixedMessageReader) Init(conn io.Reader) *FixedMessageReader {
+	r.conn = conn
+	return r
+}
+
+func (r *FixedMessageReader) ReadMessage() (Message, error) {
+	if r.length < HEAD_LENGTH {
+		n, err := r.conn.Read(r.buffer[r.length:])
 		if err != nil {
 			if n <= 0 {
 				return nil, err
 			}
-			self.conn = &errReader{err: err}
+			r.conn = &errReader{err: err}
 		}
-		self.length += n
-		if self.length < HEAD_LENGTH {
+		r.length += uint(n)
+		if r.length < HEAD_LENGTH {
 			return nil, err
 		}
 	}
 
-	msg_data_length, err := readLength(self.buffer[2:])
+	dataLength, err := readLength(r.buffer[:])
 	if err != nil {
 		return nil, err
 	}
 
-	bs := MakeBytes(msg_data_length + HEAD_LENGTH)
-	//}
+	messageLength := (dataLength + HEAD_LENGTH)
+	bs := MakeBytes(messageLength)
 
-	message_length := (msg_data_length + HEAD_LENGTH)
-	if message_length <= 2*HEAD_LENGTH {
-		copy(bs, self.buffer[:message_length])
-		self.length -= message_length
+	if messageLength <= r.length {
+		copy(bs, r.buffer[:messageLength])
+		copy(r.buffer[:], r.buffer[messageLength:])
+		r.length -= messageLength
 		return Message(bs), nil
 	}
 
-	_, err = io.ReadFull(self.conn, bs[self.length:message_length])
-	self.length = 0
+	copy(bs, r.buffer[:r.length])
+	_, err = io.ReadFull(r.conn, bs[r.length:messageLength])
+	r.length = 0
 	if err != nil {
 		return nil, err
 	}
@@ -519,4 +560,8 @@ func (self Builder) Close() error {
 	bs[0] = self.cmd
 	BuildMessage(bs)
 	return nil
+}
+
+func NewMessageReader(r io.Reader, capacity int) MessageReader {
+	return &FixedMessageReader{conn: r}
 }
