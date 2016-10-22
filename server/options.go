@@ -15,6 +15,11 @@ type Options struct {
 	Verbose    bool
 	TCPAddress string
 
+	// https options
+	SSLAddress  string
+	SSLCertFile string
+	SSLKeyFile  string
+
 	// msg and command options
 	MsgBufferSize    int
 	MsgTimeout       time.Duration

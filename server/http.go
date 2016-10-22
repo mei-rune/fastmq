@@ -41,6 +41,18 @@ func StandardConnection(srv *Server) (ByPass, error) {
 			srv.Close()
 		}
 	})
+
+	if "" != srv.options.SSLAddress {
+		srv.RunItInGoroutine(func() {
+			if err := http.ListenAndServeTLS(srv.options.SSLAddress,
+				srv.options.SSLCertFile, srv.options.SSLKeyFile, engine); err != nil {
+				if e, ok := err.(*net.OpError); !ok || e == nil || e.Err != io.EOF {
+					srv.log("[https]", err)
+				}
+				srv.Close()
+			}
+		})
+	}
 	return engine, nil
 }
 
