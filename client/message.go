@@ -18,8 +18,8 @@ import (
 //
 
 const MAGIC_LENGTH = 4
-const MAX_ENVELOPE_LENGTH = math.MaxUint32
-const MAX_MESSAGE_LENGTH = math.MaxUint32 - HEAD_LENGTH
+const MAX_ENVELOPE_LENGTH = math.MaxInt32
+const MAX_MESSAGE_LENGTH = math.MaxInt32 - HEAD_LENGTH
 const HEAD_LENGTH = 8
 const SYS_EVENTS = "_sys.events"
 
