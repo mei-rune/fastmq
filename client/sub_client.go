@@ -3,6 +3,7 @@ package client
 import (
 	"io"
 	"net"
+	"time"
 )
 
 type ErrDisconnect struct {
@@ -36,6 +37,15 @@ func (self *Subscription) subscribe(bufSize int, cb func(cli *Subscription, msg 
 	var recvMessage Message
 	var err error
 
+	if tcpConn, ok := self.conn.(*net.TCPConn); ok {
+
+		if err := tcpConn.SetKeepAlive(true); err != nil {
+			return err
+		}
+		if err := tcpConn.SetKeepAlivePeriod(3 * time.Minute); err != nil {
+			return err
+		}
+	}
 	reader.Init(self.conn)
 	for {
 		recvMessage, err = reader.ReadMessage()

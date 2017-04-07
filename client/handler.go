@@ -80,8 +80,8 @@ type Handler struct {
 
 	read_connect_total  uint32
 	write_connect_total uint32
-	read_connect_ok     uint32
-	write_connect_ok    uint32
+	read_disconnect     uint32
+	write_disconnect    uint32
 
 	*Base
 	c              chan Message
@@ -90,18 +90,26 @@ type Handler struct {
 	Typ        string
 	RecvQname  string
 	SendQname  string
+	errLock    sync.Mutex
 	last_error error
 }
 
 func (self *Handler) Stats() map[string]interface{} {
+	var lastErr string
+	self.errLock.Lock()
+	if self.last_error != nil {
+		lastErr = self.last_error.Error()
+	}
+	self.errLock.Unlock()
+
 	return map[string]interface{}{
-		"read_connect_last_at":  time.Unix(0, atomic.LoadInt64(&self.read_connect_last_at)),
-		"read_connect_total":    atomic.LoadUint32(&self.read_connect_total),
-		"read_connect_ok":       atomic.LoadUint32(&self.read_connect_ok),
-		"write_connect_last_at": time.Unix(0, atomic.LoadInt64(&self.write_connect_last_at)),
-		"write_connect_total":   atomic.LoadUint32(&self.write_connect_total),
-		"write_connect_ok":      atomic.LoadUint32(&self.write_connect_ok),
-		"last_error":            self.last_error,
+		"read_connect_last_at":   time.Unix(0, atomic.LoadInt64(&self.read_connect_last_at)),
+		"read_connect_total":     atomic.LoadUint32(&self.read_connect_total),
+		"read_disconnect_total":  atomic.LoadUint32(&self.read_disconnect),
+		"write_connect_last_at":  time.Unix(0, atomic.LoadInt64(&self.write_connect_last_at)),
+		"write_connect_total":    atomic.LoadUint32(&self.write_connect_total),
+		"write_disconnect_total": atomic.LoadUint32(&self.write_disconnect),
+		"last_error":             lastErr,
 	}
 }
 
@@ -122,7 +130,9 @@ func (self *Handler) runLoop(builder *ClientBuilder,
 	for {
 		if err := cb(builder); err != nil {
 			conn_err_count++
+			self.errLock.Lock()
 			self.last_error = err
+			self.errLock.Unlock()
 
 			if conn_err_count < 5 || 0 == conn_err_count%50 {
 				log.Println("failed to connect mq server,", err)
@@ -154,7 +164,7 @@ func (self *Handler) runWrite(builder *ClientBuilder) (err error) {
 	}
 	defer w.Close()
 
-	atomic.AddUint32(&self.write_connect_ok, 1)
+	defer atomic.AddUint32(&self.write_disconnect, 1)
 
 	tick := time.NewTicker(10 * time.Second)
 	defer tick.Stop()
@@ -210,7 +220,7 @@ func (self *Handler) runRead(builder *ClientBuilder) (err error) {
 		})
 
 	if IsConnected(err) {
-		atomic.AddUint32(&self.read_connect_ok, 1)
+		atomic.AddUint32(&self.read_disconnect, 1)
 		log.Println("[mq] ["+self.RecvQname+"] mq is disconnected, ", err)
 		return nil
 	}
@@ -262,6 +272,23 @@ type QueueMgr struct {
 	handlers_lock sync.Mutex
 	handlers      map[string]HandlerObject
 	create        func(mgr *QueueMgr, name string)
+}
+
+func (self *QueueMgr) Stats() map[string]interface{} {
+	self.handlers_lock.Lock()
+	defer self.handlers_lock.Unlock()
+
+	var handlers = map[string]interface{}{}
+
+	for k, q := range self.handlers {
+		h, ok := q.(interface {
+			Stats() map[string]interface{}
+		})
+		if ok {
+			handlers[k] = h.Stats()
+		}
+	}
+	return handlers
 }
 
 func (self *QueueMgr) Close() error {
