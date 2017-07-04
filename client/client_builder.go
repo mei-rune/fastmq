@@ -208,15 +208,28 @@ func connect(network, address string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		if err = tcp.SetNoDelay(true); err != nil {
+			conn.Close()
+			return nil, errors.New("SetNoDelay: " + err.Error())
+		}
+	}
+
 	if err := SendMagic(conn); err != nil {
 		conn.Close()
-		return nil, err
+		return nil, errors.New("write magic: " + err.Error())
 	}
+
+	if err := SendFull(conn, MSG_NOOP_BYTES); err != nil {
+		conn.Close()
+		return nil, errors.New("write noop: " + err.Error())
+	}
+
 	// prevent blocked while connect to incorrect server.
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	if err = ReadMagic(conn); err != nil {
 		conn.Close()
-		return nil, err
+		return nil, errors.New("read magic: " + err.Error())
 	}
 
 	conn.SetReadDeadline(time.Time{})

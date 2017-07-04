@@ -2,9 +2,9 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
@@ -25,17 +25,17 @@ func (self *runCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
 	return fs
 }
 
-func (self *runCmd) Run(args []string) {
+func (self *runCmd) Run(args []string) error {
 	opt := &server.Options{HttpEnabled: true}
 
 	srv, err := server.NewServer(opt)
 	if err != nil {
-		log.Fatalln(err)
-		return
+		return err
 	}
 	defer srv.Close()
 
 	srv.Wait()
+	return nil
 }
 
 type sendCmd struct {
@@ -55,10 +55,9 @@ func (self *sendCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
 	return fs
 }
 
-func (self *sendCmd) Run(args []string) {
+func (self *sendCmd) Run(args []string) error {
 	if len(args) != 2 {
-		log.Fatalln("arguments error!\r\nUsage: fastmq send queuname messagebody")
-		return
+		return errors.New("arguments error!\r\nUsage: fastmq send queuname messagebody")
 	}
 	// if self.typ != "queue" && self.typ != "topic"  {
 	// 	log.Fatalln("arguments error: type must is 'queue' or 'topic'.")
@@ -79,13 +78,11 @@ func (self *sendCmd) Run(args []string) {
 	case "queue":
 		cli, err = cliBuilder.ToQueue(args[0])
 	default:
-		log.Fatalln("arguments error: type must is 'queue' or 'topic'.")
-		return
+		return errors.New("arguments error: type must is 'queue' or 'topic'.")
 	}
 
 	if nil != err {
-		log.Fatalln(err)
-		return
+		return err
 	}
 	defer cli.Close()
 
@@ -112,6 +109,7 @@ func (self *sendCmd) Run(args []string) {
 		}
 	}
 	cli.Stop()
+	return nil
 }
 
 type subscribeCmd struct {
@@ -135,10 +133,9 @@ func (self *subscribeCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
 	return fs
 }
 
-func (self *subscribeCmd) Run(args []string) {
+func (self *subscribeCmd) Run(args []string) error {
 	if len(args) != 1 {
-		log.Fatalln("arguments error!\r\nUsage: fastmq subscribe queuname")
-		return
+		return errors.New("arguments error!\r\nUsage: fastmq subscribe queue name")
 	}
 	// if self.typ != "queue" && self.typ != "topic"  {
 	// 	log.Fatalln("arguments error: type must is 'queue' or 'topic'.")
@@ -161,8 +158,11 @@ func (self *subscribeCmd) Run(args []string) {
 		case "queue":
 			forward, err = forwardBuilder.ToQueue(self.forward)
 		default:
-			log.Fatalln("arguments error: type must is 'queue' or 'topic'.")
-			return
+			return errors.New("arguments error: type must is 'queue' or 'topic'.")
+		}
+
+		if err != nil {
+			return err
 		}
 	}
 
@@ -201,17 +201,11 @@ func (self *subscribeCmd) Run(args []string) {
 
 	switch self.typ {
 	case "topic":
-		err = subBuilder.SubscribeTopic(args[0], cb)
+		return subBuilder.SubscribeTopic(args[0], cb)
 	case "queue":
-		err = subBuilder.SubscribeQueue(args[0], cb)
+		return subBuilder.SubscribeQueue(args[0], cb)
 	default:
-		log.Fatalln("arguments error: type must is 'queue' or 'topic'.")
-		return
-	}
-
-	if nil != err {
-		log.Fatalln(err)
-		return
+		return errors.New("arguments error: type must is 'queue' or 'topic'.")
 	}
 }
 

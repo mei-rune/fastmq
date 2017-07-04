@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
@@ -241,6 +242,10 @@ func (self *standardEngine) doHandler(w http.ResponseWriter, r *http.Request,
 			return
 		}
 		r.Body.Close()
+
+		if len(bs) > 50 {
+			fmt.Println("recv", string(bs))
+		}
 
 		timeout := GetTimeout(query_params, 0)
 		msg := mq_client.NewMessageWriter(mq_client.MSG_DATA, len(bs)+10).Append(bs).Build()
